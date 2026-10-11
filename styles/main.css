@@ -1632,4 +1632,50 @@ body:has(#fee-page:not(.hidden)) main {
     border-radius: 10px !important;
 }
 
+/* ========================================================
+   RESULT PORTAL ADVANCED WORKSPACE STYLES
+   ======================================================== */
+.mark-cell-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+.mark-input {
+    transition: all 0.15s ease-in-out;
+}
+.mark-input:focus {
+    background-color: #eef2ff !important;
+    border-color: #4f46e5 !important;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.25) !important;
+    outline: none !important;
+}
+.mark-live-grade {
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: 4px;
+    min-height: 13px;
+    display: inline-block;
+}
+.grade-badge-aplus { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.grade-badge-a { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.grade-badge-b { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+.grade-badge-c { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.grade-badge-f { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; font-weight: 900; }
+.grade-badge-p { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; }
+.grade-badge-ab { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+.draft-quick-filter-btn.active {
+    background-color: #4f46e5 !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3) !important;
+}
+.draft-quick-filter-btn.active span {
+    color: #ffffff !important;
+}
+
+
 

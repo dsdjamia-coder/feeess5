@@ -20,6 +20,8 @@ let institutionConfig = {};
 let currentAcademicYear = '';
 let availableAcademicYears = [];
 let allStaff = [];
+let currentDraftFilter = 'all';
+let viewingResultId = '';
 window.addEventListener('load', () => {
     const loader = document.getElementById('loading-screen');
     if (!loader) return;
@@ -289,6 +291,40 @@ const buildResultSummary = (marks = {}, subjectRows = []) => {
         grades[subject.id] = isPassingMark(upper, subject.passMarks) ? 'PASS' : 'FAIL';
     });
     return { totals: { obtained, maximum, passStatus: hasEntries ? passStatus : 'FAIL' }, grades };
+};
+
+const isAbsentRow = (row = {}) => {
+    const marks = Object.values(row.marks || {});
+    if (!marks.length) return false;
+    return marks.every((m) => {
+        const val = getStoredMarkValue(m).toUpperCase();
+        return val === 'A' || val === 'AB';
+    });
+};
+
+const isHighScorerRow = (row = {}) => {
+    const max = Number(row.totals?.maximum || 0);
+    const obt = Number(row.totals?.obtained || 0);
+    return max > 0 && (obt / max) >= 0.8;
+};
+
+const computeLiveGradeBadge = (val = '', maxMarks = 100, passMarks = 35) => {
+    const raw = String(val ?? '').trim().toUpperCase();
+    if (!raw) return { text: '-', badgeClass: 'grade-badge-ab' };
+    if (raw === 'P') return { text: 'PASS', badgeClass: 'grade-badge-p' };
+    if (raw === 'A' || raw === 'AB') return { text: 'ABSENT', badgeClass: 'grade-badge-ab' };
+    const num = Number(raw);
+    if (!Number.isFinite(num)) return { text: 'INV', badgeClass: 'grade-badge-f' };
+    const max = Number(maxMarks || 100);
+    const pass = Number(passMarks || 35);
+    if (num > max || num < 0) return { text: 'ERR', badgeClass: 'grade-badge-f' };
+    if (num < pass) return { text: 'FAIL', badgeClass: 'grade-badge-f' };
+    const pct = (num / max) * 100;
+    if (pct >= 90) return { text: 'A+', badgeClass: 'grade-badge-aplus' };
+    if (pct >= 80) return { text: 'A', badgeClass: 'grade-badge-a' };
+    if (pct >= 60) return { text: 'B', badgeClass: 'grade-badge-b' };
+    if (pct >= 35) return { text: 'C', badgeClass: 'grade-badge-c' };
+    return { text: 'PASS', badgeClass: 'grade-badge-p' };
 };
 
 // --- Authentication & Guard (Username Based) ---
@@ -708,6 +744,95 @@ const updateDashboard = () => {
     if (healthLabelEl) healthLabelEl.textContent = `${passPercent}%`;
     const healthBarEl = document.getElementById('dash-health-bar');
     if (healthBarEl) healthBarEl.style.width = `${passPercent}%`;
+
+    // 1. Class Performance Breakdown
+    const breakdownEl = document.getElementById('dash-class-breakdown');
+    if (breakdownEl) {
+        if (!targetClasses.length) {
+            breakdownEl.innerHTML = '<p class="text-gray-400 text-xs italic">No classes found.</p>';
+        } else {
+            breakdownEl.innerHTML = targetClasses.map((cls) => {
+                const clsRows = yearRows.filter((r) => r.classLabel === cls);
+                const clsPublished = clsRows.filter((r) => r.published === true);
+                const clsPassed = clsPublished.filter((r) => isPassFromMarks(r));
+                const pct = clsPublished.length ? Math.round((clsPassed.length / clsPublished.length) * 100) : 0;
+                return `
+                    <div class="p-2.5 bg-slate-50 border rounded-xl">
+                        <div class="flex justify-between items-center text-xs font-bold text-slate-700 mb-1">
+                            <span>${escapeHtml(cls)}</span>
+                            <span class="text-indigo-700 font-extrabold">${pct}% <span class="text-[10px] text-slate-400 font-normal">(${clsPassed.length}/${clsPublished.length || clsRows.length})</span></span>
+                        </div>
+                        <div class="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                            <div class="bg-indigo-600 h-2 rounded-full transition-all duration-300" style="width: ${pct}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 2. Gender Performance Analytics
+    const boysPassEl = document.getElementById('dash-boys-pass');
+    const boysPctEl = document.getElementById('dash-boys-pct');
+    const girlsPassEl = document.getElementById('dash-girls-pass');
+    const girlsPctEl = document.getElementById('dash-girls-pct');
+    if (boysPassEl && girlsPassEl) {
+        const boysStudents = new Set(yearStudents.filter(s => {
+            const g = String(s.gender || '').toLowerCase();
+            return g.startsWith('m') || g.includes('boy');
+        }).map(s => s.id));
+        const girlsStudents = new Set(yearStudents.filter(s => {
+            const g = String(s.gender || '').toLowerCase();
+            return g.startsWith('f') || g.includes('girl');
+        }).map(s => s.id));
+
+        const boysRows = yearPublishedRows.filter(r => boysStudents.has(r.studentId));
+        const boysPassed = boysRows.filter(r => isPassFromMarks(r)).length;
+        const boysPct = boysRows.length ? Math.round((boysPassed / boysRows.length) * 100) : 0;
+
+        const girlsRows = yearPublishedRows.filter(r => girlsStudents.has(r.studentId));
+        const girlsPassed = girlsRows.filter(r => isPassFromMarks(r)).length;
+        const girlsPct = girlsRows.length ? Math.round((girlsPassed / girlsRows.length) * 100) : 0;
+
+        boysPassEl.textContent = `${boysPassed} / ${boysRows.length || boysStudents.size}`;
+        if (boysPctEl) boysPctEl.textContent = `${boysPct}% Pass Rate`;
+
+        girlsPassEl.textContent = `${girlsPassed} / ${girlsRows.length || girlsStudents.size}`;
+        if (girlsPctEl) girlsPctEl.textContent = `${girlsPct}% Pass Rate`;
+    }
+
+    // 3. Top Performers Spotlight
+    const spotlightEl = document.getElementById('dash-top-performers');
+    if (spotlightEl) {
+        const topPerClass = [];
+        targetClasses.forEach((cls) => {
+            const clsRows = (yearPublishedRows.length ? yearPublishedRows : yearRows).filter((r) => r.classLabel === cls && r.totals?.maximum > 0);
+            if (clsRows.length) {
+                const sorted = [...clsRows].sort((a, b) => Number(b.totals?.obtained || 0) - Number(a.totals?.obtained || 0));
+                const top = sorted[0];
+                if (top) topPerClass.push({ cls, row: top, student: getStudentById(top.studentId) });
+            }
+        });
+        if (!topPerClass.length) {
+            spotlightEl.innerHTML = '<p class="text-gray-400 text-xs italic">Top student ranks will appear once results are entered.</p>';
+        } else {
+            spotlightEl.innerHTML = topPerClass.map((item) => `
+                <div class="flex items-center justify-between p-2.5 bg-amber-50/60 border border-amber-200/70 rounded-xl text-xs">
+                    <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-6 h-6 rounded-full bg-amber-500 text-white font-extrabold flex items-center justify-center text-[10px] shrink-0">#1</span>
+                        <div class="truncate">
+                            <span class="font-bold text-slate-800">${escapeHtml(item.student?.name || 'Student')}</span>
+                            <span class="text-[10px] text-slate-500 block">${escapeHtml(item.cls)} • Adm: ${escapeHtml(item.student?.adm || item.student?.admissionNo || '-')}</span>
+                        </div>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <span class="font-mono font-bold text-amber-900">${item.row.totals?.obtained}/${item.row.totals?.maximum}</span>
+                        <span class="text-[10px] text-emerald-700 font-bold block">${Math.round((Number(item.row.totals?.obtained || 0) / Number(item.row.totals?.maximum || 1)) * 100)}%</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+    }
 
     const recentExamsEl = document.getElementById('dash-recent-exams');
     const recent = resultSchemas.slice(-3);
