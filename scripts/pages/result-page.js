@@ -460,6 +460,14 @@ const activateResultTab = (tabEl, { updateHash = true } = {}) => {
     tabEl.classList.add('active');
     const targetPage = document.getElementById(tabEl.dataset.target);
     if(targetPage) targetPage.classList.remove('hidden');
+
+    // Toggle full-width layout body class specifically for Marks Entry tab
+    if (tabEl.dataset.target === 'marks-page') {
+        document.body.classList.add('marks-entry-active');
+    } else {
+        document.body.classList.remove('marks-entry-active');
+    }
+
     if (updateHash && tabEl.getAttribute('href')?.startsWith('#')) {
         const nextHash = tabEl.getAttribute('href');
         if (window.location.hash !== nextHash) history.pushState({}, '', nextHash);
@@ -481,6 +489,12 @@ window.addEventListener('hashchange', () => {
     const tab = Array.from(tabs).find((entry) => entry.getAttribute('href') === window.location.hash);
     if (tab) activateResultTab(tab, { updateHash: false });
 });
+
+if (window.location.hash) {
+    const initialTab = Array.from(tabs).find((entry) => entry.getAttribute('href') === window.location.hash);
+    if (initialTab) activateResultTab(initialTab, { updateHash: false });
+}
+
 
 // --- Data Listeners ---
 const initializeDataListeners = () => {
