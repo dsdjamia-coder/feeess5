@@ -293,7 +293,7 @@
                 return;
             }
             if (requiredPage === 'result' && access) {
-                const hasResultAccess = access.result === true || access.canManageResults === true;
+                const hasResultAccess = access.result === true || access.canManageResults === true || access.canAccessAdmin === true || access.admin === true || access.actLikeSuperAdmin === true;
                 const collectionFallback = access.collection === true && window.location.search.includes('from=collection');
                 if (!hasResultAccess && !collectionFallback) {
                     setFlash('Your account does not have result page access.');

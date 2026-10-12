@@ -1,4 +1,4 @@
-import { signOut, onAuthStateChanged, EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { signOut, onAuthStateChanged, signInAnonymously, EmailAuthProvider, reauthenticateWithCredential, updateEmail, updatePassword } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, onSnapshot, collection, addDoc, updateDoc, deleteDoc, query, where, writeBatch, getDocs, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, auth } from '../../config/firebase-config.js';
 import { ADMIN_AUTH_DOC_ID, SINGLE_ADMIN_MODE, STAFF_ACCESS_COLLECTION } from '../../config/app-config.js';
@@ -8,6 +8,9 @@ registerServiceWorker();
 hardenExternalLinks();
 enableSmartSelectWindowing(document, { visibleCount: 6 });
 applyCachedInstitutionLogo(['admin-header-logo', 'admin-loader-logo']);
+
+let isStaffAdminSession = false;
+let staffAdminRecord = null;
 
 const confirmPublicExit = (message = 'Public page-ിലേക്ക് പോകുമ്പോൾ ഈ സെഷൻ logout ചെയ്യും. തുടരട്ടേ?') => confirm(message);
 window.logoutAdmin = (options = {}) => {
@@ -5819,7 +5822,10 @@ populateAcademicYearPresetSelector();
 
 // --- AUTH & FIREBASE INIT ---
 onAuthStateChanged(auth, async (user) => {
-    if (!user) { window.location.href = 'index.html'; return; }
+    if (!user) {
+        await signInAnonymously(auth);
+        return;
+    }
     const requestedTab = (window.location.hash || '#dashboard').replace('#', '') || 'dashboard';
     if (requestedTab === 'results') {
         window.location.replace('result.html?from=admin');
@@ -5859,6 +5865,8 @@ onAuthStateChanged(auth, async (user) => {
                 // Allowed via master admin session
                 currentAdminRole = 'super_admin';
             } else if (authorizedStaffAdmin) {
+                isStaffAdminSession = true;
+                staffAdminRecord = authorizedStaffAdmin;
                 currentAdminRole = authorizedStaffAdmin.actLikeSuperAdmin === true ? 'super_admin' : 'operations_admin';
                 currentAdminEmail = staffEmailFromSession;
                 // Preserve staff identity in session rather than generic admin
@@ -5923,6 +5931,12 @@ onAuthStateChanged(auth, async (user) => {
             adminAccounts = SINGLE_ADMIN_MODE ? normalizeAdminAccounts([], normalizeEmail(adminData.email || currentAdminEmail)) : normalizeAdminAccounts(adminData.admins || [], normalizeEmail(adminData.email || currentAdminEmail));
             const currentAccount = adminAccounts.find((account) => account.email === currentAdminEmail && account.isActive);
             if (!currentAccount) {
+                if (isStaffAdminSession) {
+                    applyRoleAccessUI();
+                    ensureActiveAdminPageAccess();
+                    renderDashboard();
+                    return;
+                }
                 if (isResultOperatorSession) {
                     currentAdminRole = 'result_operator';
                     applyRoleAccessUI();
@@ -5950,6 +5964,20 @@ onAuthStateChanged(auth, async (user) => {
             renderDashboard();
             startSessionRegistryHeartbeat();
         });
+
+        if (isStaffAdminSession && staffAdminRecord?.id) {
+            onSnapshot(doc(db, `${BASE_PATH}/staff`, staffAdminRecord.id), (staffDocSnap) => {
+                const sData = staffDocSnap.exists() ? staffDocSnap.data() : null;
+                if (!sData || sData.isActive === false || sData.canAccessAdmin !== true) {
+                    alert('Your staff admin access was removed or disabled. Please sign in again.');
+                    window.logoutAdmin();
+                    return;
+                }
+                currentAdminRole = sData.actLikeSuperAdmin === true ? 'super_admin' : 'operations_admin';
+                applyRoleAccessUI();
+                ensureActiveAdminPageAccess();
+            });
+        }
         onSnapshot(sessionControlRef, (sessionSnap) => {
             sessionControl = sessionSnap.exists() ? sessionSnap.data() : {};
             renderSessionMonitor();

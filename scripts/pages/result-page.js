@@ -1,4 +1,4 @@
-import { signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { signOut, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, onSnapshot, collection, getDocs, writeBatch, setDoc, query, where, getDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, auth } from '../../config/firebase-config.js';
 import { ADMIN_AUTH_DOC_ID, SINGLE_ADMIN_MODE, STAFF_ACCESS_COLLECTION } from '../../config/app-config.js';
@@ -177,28 +177,55 @@ const getExamContext = (value = '', classLabel = '', year = currentAcademicYear)
     return option || { value: schema.id, key: schema.id, label: schema.name || schema.classLabel || schema.id, schema };
 };
 const resolveResultAccess = async ({ isAdminUser = false, staffDocs = [], user = null, staffAccess = null, userKey = '' } = {}) => {
-    if (isAdminUser) return { allowed: true, label: 'ADMINISTRATOR', staffDoc: null };
+    const isSuperOrAdmin = isAdminUser || staffAccess?.actLikeSuperAdmin === true || staffAccess?.canAccessAdmin === true || staffAccess?.admin === true;
+    if (isSuperOrAdmin) {
+        const matchingDoc = staffDocs.find((s) => {
+            const sId = s.id;
+            const sLoginId = String(s.loginId || s.username || '').trim().toLowerCase();
+            const sEmail = String(s.email || '').trim().toLowerCase();
+            const sName = String(s.name || '').trim().toLowerCase();
+            return (staffAccess?.staffId && sId === staffAccess.staffId)
+                || (userKey && (sLoginId === userKey || sEmail === userKey || sName === userKey));
+        });
+        return {
+            allowed: true,
+            isAdmin: true,
+            label: matchingDoc?.name || staffAccess?.name || staffAccess?.displayName || user?.displayName || 'ADMINISTRATOR',
+            staffDoc: matchingDoc || null
+        };
+    }
+
     const myStaffDoc = staffDocs.find((s) => {
-        const sLoginId = String(s.loginId || '').trim().toLowerCase();
+        const sId = s.id;
+        const sLoginId = String(s.loginId || s.username || '').trim().toLowerCase();
         const sEmail = String(s.email || '').trim().toLowerCase();
-        return (sLoginId && sLoginId === userKey) || (sEmail && sEmail === userKey);
+        const sName = String(s.name || '').trim().toLowerCase();
+        return (staffAccess?.staffId && sId === staffAccess.staffId)
+            || (userKey && (sLoginId === userKey || sEmail === userKey || sName === userKey));
     });
     let hasResultPermission = myStaffDoc && myStaffDoc.isActive !== false && (
         myStaffDoc.canManageResults === true
+        || myStaffDoc.canAccessAdmin === true
+        || myStaffDoc.actLikeSuperAdmin === true
         || staffAccess?.result === true
         || staffAccess?.canManageResults === true
+        || staffAccess?.canAccessAdmin === true
+        || staffAccess?.actLikeSuperAdmin === true
     );
     if (!hasResultPermission) {
-        const staffAccessRef = doc(db, STAFF_ACCESS_COLLECTION, normalizeEmail(user?.email || ''));
+        const staffAccessRef = doc(db, STAFF_ACCESS_COLLECTION, normalizeEmail(user?.email || staffAccess?.email || staffAccess?.userKey || ''));
         const staffAccessSnap = await getDoc(staffAccessRef);
         if (staffAccessSnap.exists()) {
             const accessData = staffAccessSnap.data() || {};
-            hasResultPermission = accessData.isActive !== false && (accessData.result === true || accessData.canManageResults === true);
+            hasResultPermission = accessData.isActive !== false && (
+                accessData.result === true || accessData.canManageResults === true || accessData.canAccessAdmin === true || accessData.actLikeSuperAdmin === true
+            );
         }
     }
     if (!hasResultPermission) return { allowed: false, label: '', staffDoc: null };
     return {
         allowed: true,
+        isAdmin: false,
         label: myStaffDoc?.name || staffAccess?.name || staffAccess?.displayName || user?.displayName || 'RESULT OPERATOR',
         staffDoc: myStaffDoc || null
     };
@@ -335,8 +362,13 @@ const computeLiveGradeBadge = (val = '', maxMarks = 100, passMarks = 35) => {
 // --- Authentication & Guard (Username Based) ---
 onAuthStateChanged(auth, async (user) => {
     if (!user) {
-        window.location.replace('index.html');
-        return;
+        try {
+            await signInAnonymously(auth);
+            return;
+        } catch (_err) {
+            window.location.replace('index.html');
+            return;
+        }
     }
 
     // Get login ID (Username) from current session, exactly like collection-page.js
@@ -344,7 +376,7 @@ onAuthStateChanged(auth, async (user) => {
     currentUserKey = String(staffAccess.loginId || staffAccess.userKey || user.email || '').trim().toLowerCase();
     
     try {
-        // 1. Check if user is Master Admin
+        // 1. Check if user is Master Admin or Admin-privileged staff
         const adminRef = doc(db, `${BASE_PATH}/settings`, ADMIN_AUTH_DOC_ID);
         const adminSnap = await getDoc(adminRef);
         const adminData = adminSnap.exists() ? adminSnap.data() : {};
@@ -352,6 +384,9 @@ onAuthStateChanged(auth, async (user) => {
         const adminAccounts = SINGLE_ADMIN_MODE ? [] : (Array.isArray(adminData.admins) ? adminData.admins : []);
         
         isCurrentAdmin = (window.AppSession?.getRole?.() === 'admin')
+                         || (staffAccess?.actLikeSuperAdmin === true)
+                         || (staffAccess?.canAccessAdmin === true)
+                         || (staffAccess?.admin === true)
                          || (user.email && adminEmail === user.email.toLowerCase()) || 
                          (user.email && adminAccounts.some((account) => String(account.email).toLowerCase() === user.email.toLowerCase() && account.isActive !== false));
 
@@ -371,38 +406,39 @@ onAuthStateChanged(auth, async (user) => {
 
 const grantResultAccess = (accessInfo) => {
     hasResultAccess = true;
-    roleScope = isCurrentAdmin ? 'admin' : 'staff';
+    const sessionStaffAccess = window.AppSession?.getStaffAccess?.() || {};
+    const isFullAdmin = isCurrentAdmin || accessInfo?.isAdmin || sessionStaffAccess?.actLikeSuperAdmin === true || sessionStaffAccess?.canAccessAdmin === true;
+    roleScope = isFullAdmin ? 'admin' : 'staff';
     currentStaffDoc = (accessInfo && typeof accessInfo === 'object') ? accessInfo.staffDoc : null;
 
     // Extract assigned classes
-    if (isCurrentAdmin) {
+    if (isFullAdmin) {
         teacherAssignedClasses = [];
     } else {
-        const sessionStaffAccess = window.AppSession?.getStaffAccess?.() || {};
         teacherAssignedClasses = getStaffAssignedClasses(currentStaffDoc, sessionStaffAccess);
     }
 
     document.getElementById('access-denied-block').classList.add('hidden');
     document.getElementById('page-content').classList.remove('hidden');
 
-    const displayName = typeof accessInfo === 'string' ? accessInfo : (accessInfo?.label || 'RESULT OPERATOR');
+    const displayName = typeof accessInfo === 'string' ? accessInfo : (accessInfo?.label || window.AppSession?.getStaffName?.() || 'RESULT OPERATOR');
     document.getElementById('staff-name-display').textContent = displayName;
 
     const roleBadge = document.getElementById('staff-role-badge');
     if (roleBadge) {
-        roleBadge.textContent = isCurrentAdmin
+        roleBadge.textContent = sessionStaffAccess?.actLikeSuperAdmin
             ? 'Super Administrator'
-            : (currentStaffDoc?.designation || currentStaffDoc?.role || 'Class Teacher');
+            : (currentStaffDoc?.role || currentStaffDoc?.designation || currentStaffDoc?.type || sessionStaffAccess?.role || (isFullAdmin ? 'Administrator' : 'Class Teacher'));
     }
 
     // Teacher assigned banner in Overview
     const banner = document.getElementById('teacher-assigned-banner');
     const bannerText = document.getElementById('teacher-assigned-classes-text');
     if (banner && bannerText) {
-        if (!isCurrentAdmin && teacherAssignedClasses.length > 0) {
+        if (!isFullAdmin && teacherAssignedClasses.length > 0) {
             bannerText.textContent = teacherAssignedClasses.join(', ');
             banner.classList.remove('hidden');
-        } else if (!isCurrentAdmin) {
+        } else if (!isFullAdmin) {
             bannerText.textContent = 'All Classes (General Teacher Access)';
             banner.classList.remove('hidden');
         } else {
