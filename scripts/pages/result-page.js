@@ -731,50 +731,9 @@ const renderBlockedClasses = () => {
     if (!container) return;
     container.innerHTML = classes.map((cls) => `<label class="text-sm font-medium flex items-center gap-2"><input type="checkbox" class="blocked-class-checkbox" value="${cls}" ${resultCenterSettings.blockedClasses?.includes(cls) ? 'checked' : ''}>${cls}</label>`).join('');
 };
-const renderPromotionMappingUI = () => {
-    const container = document.getElementById('promotion-map-list');
-    if (!container) return;
-    const map = resultCenterSettings.classProgressionMap || {};
-    
-    // Filter out 'Alumni' from promotable sources if present in classes
-    const promotableClasses = classes.filter((c) => String(c).trim().toLowerCase() !== 'alumni');
-    
-    // Target choices: other classes + Alumni
-    const targetChoices = [...classes.filter((c) => String(c).trim().toLowerCase() !== 'alumni')];
-    if (!targetChoices.includes('Alumni')) targetChoices.push('Alumni');
-
-    if (!promotableClasses.length) {
-        container.innerHTML = `<div class="col-span-full text-center py-4 text-xs text-slate-400 italic">No classes available for promotion mapping.</div>`;
-        return;
-    }
-
-    container.innerHTML = promotableClasses.map((cls, idx) => {
-        const fallback = promotableClasses[idx + 1] || 'Alumni';
-        const selected = (map[cls] !== undefined && map[cls] !== '') ? map[cls] : fallback;
-        
-        const options = [
-            `<option value="Alumni" ${selected === 'Alumni' ? 'selected' : ''}>🎓 Alumni (Pass Out)</option>`,
-            ...targetChoices.filter((opt) => opt !== 'Alumni').map((option) => `<option value="${escapeHtml(option)}" ${selected === option ? 'selected' : ''}>Class ${escapeHtml(option)}</option>`),
-            `<option value="" ${selected === '' ? 'selected' : ''}>-- No Promotion (Remain / Discontinue) --</option>`
-        ].join('');
-
-        return `
-            <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex flex-col justify-between gap-2 hover:border-indigo-300 transition">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                        <i class="fas fa-chalkboard text-indigo-500 text-[11px]"></i> Current: <strong class="text-indigo-900">${escapeHtml(cls)}</strong>
-                    </span>
-                    <i class="fas fa-arrow-right text-[10px] text-slate-400"></i>
-                </div>
-                <div>
-                    <label class="block text-[10px] font-semibold text-slate-500 mb-1">Promote To Next Class:</label>
-                    <select class="promotion-map-input w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50 text-slate-800 focus:bg-white focus:border-indigo-400 outline-none transition" data-class="${escapeHtml(cls)}">
-                        ${options}
-                    </select>
-                </div>
-            </div>
-        `;
-    }).join('');
+const renderPromotionCandidatesUI = () => {
+    const currentYearBadge = document.getElementById('promotion-current-year-badge');
+    if (currentYearBadge) currentYearBadge.textContent = currentAcademicYear || 'N/A';
 
     const yearSelect = document.getElementById('promotion-target-year');
     if (yearSelect) {
@@ -787,9 +746,132 @@ const renderPromotionMappingUI = () => {
         const options = availableAcademicYears
             .map((year) => normalizeYear(year))
             .filter((year) => year && year !== currentAcademicYear);
-        yearSelect.innerHTML = `<option value="">Select Next Academic Year</option>${options.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join('')}`;
+
+        if (!options.length && currentAcademicYear) {
+            const startYear = parseInt(String(currentAcademicYear).split('-')[0], 10);
+            if (!isNaN(startYear)) {
+                options.push(`${startYear + 1}-${startYear + 2}`);
+            }
+        }
+
+        const currentTargetVal = yearSelect.value;
+        const previousOptionsHtml = yearSelect.innerHTML;
+        if (!previousOptionsHtml || yearSelect.options.length <= 1) {
+            yearSelect.innerHTML = `<option value="">Select Next Year</option>${options.map((year, idx) => `<option value="${escapeHtml(year)}" ${currentTargetVal === year || (!currentTargetVal && idx === 0) ? 'selected' : ''}>${escapeHtml(year)}</option>`).join('')}`;
+        }
     }
+
+    const container = document.getElementById('promotion-preview-list');
+    if (!container) return;
+
+    const annualRows = examResultsCache.filter((row) => row.published === true && detectAnnualResultRow(row));
+    const promotableClasses = classes.filter((cls) => String(cls).trim().toLowerCase() !== 'alumni');
+    const progressionMap = resultCenterSettings.classProgressionMap || {};
+
+    const targetChoices = [...classes.filter((c) => String(c).trim().toLowerCase() !== 'alumni')];
+    if (!targetChoices.includes('Alumni')) targetChoices.push('Alumni');
+
+    const summaryMap = new Map(promotableClasses.map((cls, idx) => {
+        const defaultNext = progressionMap[cls] !== undefined ? progressionMap[cls] : (promotableClasses[idx + 1] || 'Alumni');
+        return [cls, { pass: 0, fail: 0, total: 0, boys: 0, girls: 0, nextClass: defaultNext }];
+    }));
+
+    annualRows.forEach((row) => {
+        const student = students.find((entry) => entry.id === row.studentId);
+        const fromClass = student?.class || row.classLabel || '';
+        if (!fromClass || !summaryMap.has(fromClass)) return;
+        const passed = isPassFromMarks(row);
+        const gender = String(student?.gender || '').toLowerCase();
+        const item = summaryMap.get(fromClass);
+        item.total += 1;
+        if (gender.startsWith('m') || gender.includes('boy')) item.boys += 1;
+        if (gender.startsWith('f') || gender.includes('girl')) item.girls += 1;
+        if (passed) item.pass += 1;
+        else item.fail += 1;
+    });
+
+    if (summaryMap.size === 0) {
+        container.innerHTML = `<div class="p-6 text-center text-xs text-slate-400 italic bg-slate-50 rounded-xl border border-dashed border-slate-200">No classes found in the system for promotion review.</div>`;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${Array.from(summaryMap.entries()).map(([cls, stat]) => {
+                const selectedTarget = stat.nextClass;
+                const options = [
+                    `<option value="Alumni" ${selectedTarget === 'Alumni' ? 'selected' : ''}>🎓 Alumni (Pass Out)</option>`,
+                    ...targetChoices.filter((opt) => opt !== 'Alumni').map((opt) => `<option value="${escapeHtml(opt)}" ${selectedTarget === opt ? 'selected' : ''}>Class ${escapeHtml(opt)}</option>`),
+                    `<option value="" ${selectedTarget === '' ? 'selected' : ''}>-- No Promotion (Remain / Discontinue) --</option>`
+                ].join('');
+
+                const isAlumni = String(selectedTarget).trim().toLowerCase() === 'alumni';
+
+                return `
+                <div class="border border-slate-200 rounded-2xl p-4 bg-white shadow-xs hover:border-indigo-300 transition flex flex-col justify-between" data-class="${escapeHtml(cls)}">
+                    <div>
+                        <div class="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+                            <span class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center text-xs font-extrabold">
+                                    <i class="fas fa-layer-group"></i>
+                                </span>
+                                Class ${escapeHtml(cls)}
+                            </span>
+                            <span id="badge-target-${escapeHtml(cls)}" class="text-[10px] font-bold ${isAlumni ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'} px-2 py-0.5 rounded-full">
+                                ${isAlumni ? '🎓 To Alumni' : `To ${escapeHtml(selectedTarget || 'None')}`}
+                            </span>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+                            <div class="bg-slate-50 p-2 rounded-xl border border-slate-100">
+                                <span class="text-[10px] text-slate-400 block font-semibold uppercase">Total</span>
+                                <strong class="text-slate-800 font-extrabold text-sm">${stat.total}</strong>
+                            </div>
+                            <div class="bg-emerald-50 p-2 rounded-xl border border-emerald-100">
+                                <span class="text-[10px] text-emerald-600 block font-semibold uppercase">Pass</span>
+                                <strong class="text-emerald-700 font-extrabold text-sm">${stat.pass}</strong>
+                            </div>
+                            <div class="bg-red-50 p-2 rounded-xl border border-red-100">
+                                <span class="text-[10px] text-red-500 block font-semibold uppercase">Fail</span>
+                                <strong class="text-red-700 font-extrabold text-sm">${stat.fail}</strong>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-between items-center text-[11px] text-slate-500 mb-3 px-1">
+                            <span>Boys: <strong class="text-slate-700">${stat.boys}</strong> • Girls: <strong class="text-slate-700">${stat.girls}</strong></span>
+                            <span class="font-bold text-indigo-600">${stat.total ? Math.round((stat.pass / stat.total) * 100) : 0}% Pass Rate</span>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-100 bg-slate-50/70 -mx-4 -mb-4 p-3 rounded-b-2xl">
+                        <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                            <i class="fas fa-sign-in-alt text-indigo-500 mr-1"></i> Promote Eligible Students To:
+                        </label>
+                        <select class="promotion-target-class-select w-full p-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 bg-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none transition" data-class="${escapeHtml(cls)}">
+                            ${options}
+                        </select>
+                    </div>
+                </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+
+    // Listen to changes on promotion target class selects
+    container.querySelectorAll('.promotion-target-class-select').forEach((sel) => {
+        sel.addEventListener('change', () => {
+            const cls = sel.dataset.class;
+            const targetVal = sel.value;
+            const badge = document.getElementById(`badge-target-${cls}`);
+            if (badge) {
+                const isTargetAlumni = String(targetVal).trim().toLowerCase() === 'alumni';
+                badge.className = `text-[10px] font-bold ${isTargetAlumni ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'} px-2 py-0.5 rounded-full`;
+                badge.textContent = isTargetAlumni ? '🎓 To Alumni' : (targetVal ? `To ${targetVal}` : 'No Promotion');
+            }
+        });
+    });
 };
+const renderPromotionMappingUI = renderPromotionCandidatesUI;
 const buildVisibilityKey = (classLabel = '', examKey = '') => `${classLabel}__${examKey}`;
 const renderResultVisibilitySettings = () => {
     const container = document.getElementById('result-visibility-grid');
@@ -2527,28 +2609,39 @@ document.getElementById('export-snapshot-classwise-btn')?.addEventListener('clic
 document.getElementById('run-auto-promotion-btn')?.addEventListener('click', async () => {
     if (roleScope !== 'admin') return;
     const targetAcademicYear = document.getElementById('promotion-target-year')?.value || '';
-    if (!targetAcademicYear) return alert('Select next academic year first.');
+    if (!targetAcademicYear) return alert('Select target academic year first.');
     const annualRows = examResultsCache.filter((row) => row.published === true && detectAnnualResultRow(row));
-    if (!annualRows.length) return alert('No annual published results found.');
-    if (!confirm(`Annual published results found: ${annualRows.length}. Run auto promotion now?`)) return;
+    if (!annualRows.length) return alert('No annual published results found for promotion.');
+
+    // Collect class targets from the on-screen card selects
+    const classTargetMap = {};
+    document.querySelectorAll('.promotion-target-class-select').forEach((sel) => {
+        const fromCls = String(sel.dataset.class || '').trim();
+        const toCls = String(sel.value || '').trim();
+        if (fromCls) classTargetMap[fromCls] = toCls;
+    });
+
+    if (!confirm(`Annual published results found: ${annualRows.length}. Run auto promotion into academic year ${targetAcademicYear}?`)) return;
+
     const updates = [];
     const promotionDecisions = [];
     annualRows.forEach((row) => {
         if (!isPassFromMarks(row)) return;
         const student = students.find((entry) => entry.id === row.studentId);
         if (!student) return;
-        const nextClass = getNextClassLabel(student.class || row.classLabel || '');
-        if (!nextClass) return;
+        const fromClass = student.class || row.classLabel || '';
+        const nextClass = classTargetMap[fromClass] !== undefined ? classTargetMap[fromClass] : getNextClassLabel(fromClass);
+        if (!nextClass) return; // Discontinue / No promotion
         updates.push(updateDoc(doc(db, `${BASE_PATH}/students`, student.id), {
             class: nextClass,
             academicYear: targetAcademicYear,
-            promotedFrom: student.class || row.classLabel || '',
+            promotedFrom: fromClass,
             promotedAt: new Date().toISOString()
         }));
         promotionDecisions.push(setDoc(doc(collection(db, `${BASE_PATH}/promotionDecisions`)), {
             studentId: student.id,
             studentName: student.name || '',
-            fromClass: student.class || row.classLabel || '',
+            fromClass: fromClass,
             toClass: nextClass,
             basedOn: 'annual',
             basedOnResultId: row.id,
@@ -2556,74 +2649,19 @@ document.getElementById('run-auto-promotion-btn')?.addEventListener('click', asy
             createdAt: new Date().toISOString()
         }));
     });
-    if (!updates.length) return alert('No eligible PASS students found for promotion.');
+    if (!updates.length) return alert('No eligible PASS students found for promotion with a target class selected.');
     await Promise.all([...updates, ...promotionDecisions]);
-    alert(`Auto promotion completed for ${updates.length} students.`);
-});
-document.getElementById('preview-promotion-btn')?.addEventListener('click', () => {
-    const container = document.getElementById('promotion-preview-list');
-    if (!container) return;
-    const annualRows = examResultsCache.filter((row) => row.published === true && detectAnnualResultRow(row));
-    const promotableClasses = classes.filter((cls) => String(cls).trim().toLowerCase() !== 'alumni');
-    const summaryMap = new Map(promotableClasses.map((cls) => [cls, { pass: 0, fail: 0, total: 0, boys: 0, girls: 0, nextClass: getNextClassLabel(cls) || '-' }]));
-    
-    annualRows.forEach((row) => {
-        const student = students.find((entry) => entry.id === row.studentId);
-        const fromClass = student?.class || row.classLabel || '';
-        if (!fromClass || !summaryMap.has(fromClass)) return;
-        const passed = isPassFromMarks(row);
-        const gender = String(student?.gender || '').toLowerCase();
-        const item = summaryMap.get(fromClass);
-        item.total += 1;
-        if (gender.startsWith('m') || gender.includes('boy')) item.boys += 1;
-        if (gender.startsWith('f') || gender.includes('girl')) item.girls += 1;
-        if (passed) item.pass += 1;
-        else item.fail += 1;
-    });
 
-    if (summaryMap.size === 0) {
-        container.innerHTML = `<p class="text-xs text-slate-400 italic">No classes available for promotion preview.</p>`;
-        return;
+    // Save class progression map to settings for persistent memory
+    if (Object.keys(classTargetMap).length > 0) {
+        await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), { classProgressionMap: classTargetMap }, { merge: true });
     }
 
-    container.innerHTML = `
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            ${Array.from(summaryMap.entries()).map(([cls, stat]) => {
-                const isAlumni = String(stat.nextClass).trim().toLowerCase() === 'alumni';
-                return `
-                <div class="border border-slate-200 rounded-xl p-3 bg-white shadow-xs hover:border-indigo-300 transition">
-                    <div class="flex items-center justify-between border-b pb-2 mb-2">
-                        <span class="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                            <i class="fas fa-layer-group text-indigo-500"></i> Class ${escapeHtml(cls)}
-                        </span>
-                        ${isAlumni 
-                            ? '<span class="text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">🎓 To Alumni</span>' 
-                            : `<span class="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full">To ${escapeHtml(stat.nextClass)}</span>`
-                        }
-                    </div>
-                    <div class="grid grid-cols-3 gap-2 text-center text-xs my-2">
-                        <div class="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                            <span class="text-[10px] text-slate-400 block font-medium">Total</span>
-                            <strong class="text-slate-800 font-extrabold">${stat.total}</strong>
-                        </div>
-                        <div class="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
-                            <span class="text-[10px] text-emerald-600 block font-medium">Pass</span>
-                            <strong class="text-emerald-700 font-extrabold">${stat.pass}</strong>
-                        </div>
-                        <div class="bg-red-50 p-1.5 rounded-lg border border-red-100">
-                            <span class="text-[10px] text-red-500 block font-medium">Fail</span>
-                            <strong class="text-red-700 font-extrabold">${stat.fail}</strong>
-                        </div>
-                    </div>
-                    <div class="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-slate-100">
-                        <span>Boys: <strong>${stat.boys}</strong> • Girls: <strong>${stat.girls}</strong></span>
-                        <span class="text-slate-400">${stat.total ? Math.round((stat.pass / stat.total) * 100) : 0}% pass</span>
-                    </div>
-                </div>
-                `;
-            }).join('')}
-        </div>
-    `;
+    alert(`Auto promotion successfully completed for ${updates.length} students to academic year ${targetAcademicYear}.`);
+    renderPromotionCandidatesUI();
+});
+document.getElementById('preview-promotion-btn')?.addEventListener('click', () => {
+    renderPromotionCandidatesUI();
 });
 document.getElementById('copy-prev-year-schema-btn')?.addEventListener('click', async () => {
     if (roleScope !== 'admin') return;
@@ -3491,9 +3529,13 @@ const activateSettingsSubpanel = (subtabId) => {
         b.classList.toggle('active', isCurrent);
         b.classList.toggle('bg-indigo-600', isCurrent);
         b.classList.toggle('text-white', isCurrent);
-        b.classList.toggle('shadow-sm', isCurrent);
         b.classList.toggle('text-slate-700', !isCurrent);
     });
+
+    // If promotion subpanel is selected, refresh candidates UI
+    if (subtabId === 'subpanel-promotion') {
+        renderPromotionCandidatesUI();
+    }
 };
 
 // Hamburger menu links for Settings & Setup subtabs

@@ -801,68 +801,62 @@
 
                     <!-- Sub-Panel 4: Class Promotion -->
                     <div id="subpanel-promotion" class="settings-subpanel hidden space-y-6">
-                        <!-- Top Banner Card -->
+                        <!-- Promotion Dashboard Card -->
                         <div class="card p-5 sm:p-6 shadow-sm border border-slate-200">
-                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4 mb-5">
+                            <!-- Top Banner & Action Controls -->
+                            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-5 mb-5 border-b border-slate-200">
                                 <div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">
+                                    <div class="flex items-center gap-2.5">
+                                        <span class="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center font-bold text-sm shadow-xs">
                                             <i class="fas fa-graduation-cap"></i>
                                         </span>
-                                        <h3 class="text-base sm:text-lg font-extrabold text-slate-800">Annual Class Promotion & Alumni Transition</h3>
+                                        <div>
+                                            <h3 class="text-base sm:text-lg font-bold text-slate-800 leading-tight">Annual Class Promotion & Alumni Transition</h3>
+                                            <p class="text-xs text-slate-500">Configure academic year advancement. Final year students automatically graduate into Alumni status.</p>
+                                        </div>
                                     </div>
-                                    <p class="text-xs text-slate-500 mt-1">Configure progressive grade advancement for the upcoming academic year. Final standard students transition directly into Alumni status.</p>
                                 </div>
-                                <span class="bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5">
-                                    <i class="fas fa-user-graduate"></i> Includes Alumni Progression
-                                </span>
+
+                                <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                                    <!-- Current Academic Year -->
+                                    <div class="bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl flex items-center gap-2">
+                                        <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Current Year:</span>
+                                        <span id="promotion-current-year-badge" class="text-xs font-extrabold text-indigo-700 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs">--</span>
+                                    </div>
+
+                                    <!-- Target Academic Year Select -->
+                                    <div class="flex items-center gap-2 bg-indigo-50/70 border border-indigo-200 px-3 py-1.5 rounded-xl">
+                                        <label for="promotion-target-year" class="text-xs font-bold text-indigo-900 whitespace-nowrap">
+                                            <i class="fas fa-arrow-right mr-1 text-indigo-600"></i> Promote To Year:
+                                        </label>
+                                        <select id="promotion-target-year" class="p-1 border border-indigo-200 rounded-lg bg-white text-xs font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none min-w-[140px] shadow-2xs"></select>
+                                    </div>
+
+                                    <!-- Run Auto Promotion Action Button -->
+                                    <button id="run-auto-promotion-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2 px-4 rounded-xl font-bold text-xs shadow-sm transition flex items-center justify-center gap-2 cursor-pointer ml-auto lg:ml-0">
+                                        <i class="fas fa-check-double"></i>
+                                        <span>Run Auto Promotion</span>
+                                    </button>
+                                </div>
                             </div>
 
-                            <!-- Step 1: Mapping Configuration -->
-                            <div class="mb-6">
-                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+                            <!-- Single Consolidated Promotion Review Section -->
+                            <div class="space-y-4">
+                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                                     <div>
                                         <h4 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                                            <span class="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] flex items-center justify-center font-bold">1</span>
-                                            Class Progression Mapping
+                                            <i class="fas fa-users-cog text-indigo-600"></i> Review Eligible Promotions & Target Classes
                                         </h4>
-                                        <p class="text-[11px] text-slate-500">Define which class students advance into upon passing their Annual examination.</p>
+                                        <p class="text-xs text-slate-500">Target classes are automatically assigned by sequence or custom setting. You can change any target class before running promotion.</p>
                                     </div>
-                                    <button id="save-promotion-map-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white py-2 px-4 rounded-lg font-bold text-xs shadow-sm transition flex items-center gap-1.5">
-                                        <i class="fas fa-save"></i> Save Mapping Rules
+                                    <button id="preview-promotion-btn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 py-1.5 px-3 rounded-lg font-bold text-xs transition flex items-center gap-1.5">
+                                        <i class="fas fa-sync-alt"></i> Refresh Candidates
                                     </button>
                                 </div>
 
-                                <div id="promotion-map-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                    <p class="text-xs text-slate-400 italic col-span-full">Loading class progression map...</p>
-                                </div>
-                            </div>
-
-                            <!-- Step 2: Preview & Execution Controls -->
-                            <div class="border-t border-slate-100 pt-5 space-y-4">
-                                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                    <div>
-                                        <h4 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
-                                            <span class="w-5 h-5 rounded-full bg-emerald-600 text-white text-[10px] flex items-center justify-center font-bold">2</span>
-                                            Review Eligibility & Run Promotion
-                                        </h4>
-                                        <p class="text-[11px] text-slate-500">Preview pass/fail counts from published annual exam results before executing batch promotion.</p>
-                                    </div>
-                                    <button id="preview-promotion-btn" class="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 py-2 px-4 rounded-lg font-bold text-xs transition flex items-center gap-1.5 shadow-xs">
-                                        <i class="fas fa-chart-pie"></i> Preview Promotion Candidates
-                                    </button>
-                                </div>
-
-                                <div id="promotion-preview-list" class="space-y-2"></div>
-
-                                <div class="bg-slate-50 border border-slate-200 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-4">
-                                    <div class="flex items-center gap-2">
-                                        <label for="promotion-target-year" class="text-xs font-bold text-slate-700 whitespace-nowrap">Target Academic Year:</label>
-                                        <select id="promotion-target-year" class="p-2 border border-slate-300 rounded-lg bg-white text-xs font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none min-w-[200px]"></select>
-                                    </div>
-                                    <button id="run-auto-promotion-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-6 rounded-lg font-bold text-xs sm:text-sm shadow-sm transition flex items-center justify-center gap-2">
-                                        <i class="fas fa-check-double"></i> Run Auto Promotion
-                                    </button>
+                                <!-- Dynamically populated cards with statistics and editable target class dropdown -->
+                                <div id="promotion-preview-list" class="space-y-3">
+                                    <div class="text-center py-6 text-xs text-slate-400 italic">Loading promotion candidate classes...</div>
                                 </div>
                             </div>
                         </div>
