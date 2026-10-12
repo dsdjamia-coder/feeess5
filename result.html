@@ -570,44 +570,149 @@
 
                     <!-- Sub-Panel 1: Publish Controls -->
                     <div id="subpanel-publish" class="settings-subpanel space-y-6">
-                        <div class="card p-5 shadow-sm border border-slate-200">
-                            <h3 class="text-lg font-bold mb-1 text-gray-800">Publish Schedule & Controls</h3>
-                            <p class="text-xs text-gray-600 mb-4">Results will only be visible to students in the Student Portal once published.</p>
-                            
-                            <div class="space-y-3 bg-gray-50 p-4 rounded-xl border">
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <!-- Main Publish Control Card -->
+                        <div class="card p-5 sm:p-6 shadow-sm border border-slate-200">
+                            <div class="border-b pb-4 mb-5">
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                     <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Academic Year</label>
-                                        <select id="publish-academic-year" class="w-full p-2.5 border rounded-lg bg-white"></select>
+                                        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                            <i class="fas fa-bullhorn text-indigo-600"></i>
+                                            Publish Schedule & Controls
+                                        </h3>
+                                        <p class="text-xs text-slate-500 mt-0.5">Publish examination results to the student portal either immediately or on a scheduled date.</p>
                                     </div>
-                                    <div>
-                                        <label class="block text-sm font-semibold mb-1 text-gray-700">Select Exam</label>
-                                        <select id="publish-exam-select" class="w-full p-2.5 border rounded-lg bg-white"></select>
+                                    <div id="publish-live-status-badge" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 self-start sm:self-auto border border-slate-200">
+                                        <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                                        <span>Status: No schedule</span>
                                     </div>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-semibold mb-1 text-gray-700">Exam Name (Display)</label>
-                                    <input type="text" id="publish-title" class="w-full p-2.5 border rounded-lg bg-white" placeholder="Enter exam name for students">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-semibold mb-1 text-gray-700">Publish Date & Time</label>
-                                    <input type="datetime-local" id="publish-at-input" class="w-full p-2.5 border rounded-lg bg-white">
-                                </div>
-                                <div id="publish-live-status" class="text-xs font-semibold text-slate-600 bg-white border rounded-lg p-3">Live status will appear here.</div>
-                                <div class="flex flex-wrap items-center gap-4 text-sm pt-2">
-                                    <label class="flex items-center gap-2 cursor-pointer font-medium"><input type="radio" name="publish-action" value="publish_now" checked>Publish Now</label>
-                                    <label class="flex items-center gap-2 cursor-pointer font-medium"><input type="radio" name="publish-action" value="auto_publish">Auto Publish by Time</label>
-                                    <label class="flex items-center gap-2 cursor-pointer font-medium"><input type="radio" name="publish-action" value="hide">Hide Results</label>
-                                    <button id="run-publish-action-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-4 rounded-lg transition">Apply Action</button>
                                 </div>
                             </div>
+                            
+                            <form id="publish-control-form" class="space-y-5" onsubmit="return false;">
+                                <!-- Form Fields Grid -->
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">Academic Year <span class="text-red-500">*</span></label>
+                                        <select id="publish-academic-year" class="w-full p-2.5 border rounded-xl bg-white text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-xs"></select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">Select Exam <span class="text-red-500">*</span></label>
+                                        <select id="publish-exam-select" class="w-full p-2.5 border rounded-xl bg-white text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-xs"></select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">Exam Name (Display) <span class="text-red-500">*</span></label>
+                                        <input type="text" id="publish-title" class="w-full p-2.5 border rounded-xl bg-white text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-xs" placeholder="e.g. Annual Examination 2024">
+                                    </div>
+                                </div>
+
+                                <!-- Publish Mode Selection -->
+                                <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2.5">Publish Mode</label>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <label id="mode-card-now" class="cursor-pointer border-2 border-indigo-600 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs hover:border-indigo-600">
+                                            <input type="radio" name="publish-action" value="publish_now" checked class="mt-1 text-indigo-600 focus:ring-indigo-500">
+                                            <div class="flex-1">
+                                                <div class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                                    <i class="fas fa-bolt text-amber-500"></i> Publish Now
+                                                </div>
+                                                <div class="text-xs text-slate-500 mt-0.5">Make results visible in the Student Portal immediately.</div>
+                                            </div>
+                                        </label>
+                                        <label id="mode-card-schedule" class="cursor-pointer border-2 border-slate-200 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs hover:border-indigo-400">
+                                            <input type="radio" name="publish-action" value="auto_publish" class="mt-1 text-indigo-600 focus:ring-indigo-500">
+                                            <div class="flex-1">
+                                                <div class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                                                    <i class="fas fa-clock text-indigo-600"></i> Auto Publish by Time
+                                                </div>
+                                                <div class="text-xs text-slate-500 mt-0.5">Schedule results to automatically publish at a designated date and time.</div>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <!-- Scheduled Date & Time Container -->
+                                    <div id="publish-schedule-datetime-container" class="hidden mt-4 pt-4 border-t border-slate-200">
+                                        <div class="max-w-md">
+                                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">Scheduled Date & Time <span class="text-red-500">*</span></label>
+                                            <input type="datetime-local" id="publish-at-input" class="w-full p-2.5 border rounded-xl bg-white text-sm font-semibold text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-xs">
+                                            <p class="text-xs text-slate-500 mt-1">Students will see a countdown until this scheduled time is reached.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Block Class Access Section (Before Save/Publish) -->
+                                <div class="bg-amber-50/50 p-4 rounded-xl border border-amber-200">
+                                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 mb-3 border-b border-amber-200/70">
+                                        <div>
+                                            <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                                <i class="fas fa-ban text-amber-600"></i> Block Class Access
+                                            </h4>
+                                            <p class="text-xs text-slate-600 mt-0.5">Checked classes will be blocked from viewing results. Unchecked classes will be published.</p>
+                                        </div>
+                                        <div class="flex items-center gap-2 text-xs">
+                                            <button type="button" id="select-all-blocked-btn" class="text-indigo-600 hover:text-indigo-800 font-bold px-2 py-1 rounded bg-white border border-indigo-200 hover:bg-indigo-50 transition">Select All</button>
+                                            <button type="button" id="clear-all-blocked-btn" class="text-slate-600 hover:text-slate-800 font-bold px-2 py-1 rounded bg-white border border-slate-200 hover:bg-slate-50 transition">Clear All</button>
+                                        </div>
+                                    </div>
+                                    <div id="blocked-classes-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+                                        <!-- Checkboxes populated dynamically -->
+                                    </div>
+                                </div>
+
+                                <!-- Action Buttons & Status -->
+                                <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                                    <div id="publish-live-status" class="text-xs font-semibold text-slate-600">
+                                        Select year, exam, and choose publish mode.
+                                    </div>
+                                    <div class="flex items-center gap-2 w-full sm:w-auto">
+                                        <button type="button" id="cancel-publish-edit-btn" class="hidden px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 font-bold text-xs transition">
+                                            Cancel Edit
+                                        </button>
+                                        <button type="button" id="run-publish-action-btn" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm py-2.5 px-6 rounded-xl shadow-md hover:shadow-lg transition flex items-center justify-center gap-2">
+                                            <i class="fas fa-bolt"></i>
+                                            <span id="run-publish-btn-label">Publish Now</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
                         </div>
 
-                        <div class="card p-5 shadow-sm border border-slate-200">
-                            <h3 class="text-lg font-bold mb-1 text-gray-800">Block Class Access</h3>
-                            <p class="text-xs text-gray-500 mb-3">Checked classes will be blocked from viewing results</p>
-                            <div id="blocked-classes-list" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3"></div>
-                            <button id="save-blocked-classes-btn" class="btn-primary py-2 px-5 rounded-lg font-bold">Save Blocked Classes</button>
+                        <!-- Published Exam Records Table Card -->
+                        <div class="card p-5 sm:p-6 shadow-sm border border-slate-200">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200">
+                                <div>
+                                    <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+                                        <i class="fas fa-table-list text-indigo-600"></i>
+                                        Published Exam Records & History
+                                    </h3>
+                                    <p class="text-xs text-slate-500 mt-0.5">List of all published results arranged chronologically (newest at the top).</p>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <select id="publish-history-year-filter" class="p-2 border rounded-lg bg-white text-xs font-semibold text-slate-700">
+                                        <option value="">All Academic Years</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Responsive History Table -->
+                            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-xs">
+                                <table class="w-full text-left text-xs text-slate-700">
+                                    <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                                        <tr>
+                                            <th class="py-3 px-4">Academic Year</th>
+                                            <th class="py-3 px-4">Exam & Display Name</th>
+                                            <th class="py-3 px-4">Mode / Schedule</th>
+                                            <th class="py-3 px-4">Status</th>
+                                            <th class="py-3 px-4">Blocked Classes</th>
+                                            <th class="py-3 px-4 text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="published-history-table-body" class="divide-y divide-slate-100 font-medium">
+                                        <tr>
+                                            <td colspan="6" class="p-6 text-center text-slate-400">Loading published records...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 

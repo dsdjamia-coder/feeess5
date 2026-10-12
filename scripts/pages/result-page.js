@@ -603,6 +603,7 @@ const initializeDataListeners = () => {
         updatePublishLiveStatus();
         renderGradeRules();
         renderBlockedClasses();
+        renderPublishedHistoryTable();
         renderPromotionMappingUI();
         renderResultVisibilitySettings();
     });
@@ -888,19 +889,169 @@ const formatDateTimeLabel = (value = '') => {
     if (Number.isNaN(ts.getTime())) return 'Invalid date/time';
     return ts.toLocaleString();
 };
+let editingPublishRecordId = null;
+
+const setPublishModeVisual = (mode = 'publish_now') => {
+    const cardNow = document.getElementById('mode-card-now');
+    const cardSchedule = document.getElementById('mode-card-schedule');
+    const scheduleContainer = document.getElementById('publish-schedule-datetime-container');
+    const labelSpan = document.getElementById('run-publish-btn-label');
+
+    if (mode === 'publish_now') {
+        if (cardNow) {
+            cardNow.className = 'cursor-pointer border-2 border-indigo-600 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs';
+        }
+        if (cardSchedule) {
+            cardSchedule.className = 'cursor-pointer border-2 border-slate-200 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs hover:border-indigo-400';
+        }
+        scheduleContainer?.classList.add('hidden');
+        if (labelSpan && !editingPublishRecordId) labelSpan.textContent = 'Publish Now';
+    } else {
+        if (cardSchedule) {
+            cardSchedule.className = 'cursor-pointer border-2 border-indigo-600 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs';
+        }
+        if (cardNow) {
+            cardNow.className = 'cursor-pointer border-2 border-slate-200 bg-white rounded-xl p-3.5 flex items-start gap-3 transition shadow-xs hover:border-indigo-400';
+        }
+        scheduleContainer?.classList.remove('hidden');
+        if (labelSpan && !editingPublishRecordId) labelSpan.textContent = 'Save Schedule';
+    }
+    updatePublishLiveStatus();
+};
+
 const updatePublishLiveStatus = () => {
     const el = document.getElementById('publish-live-status');
-    if (!el) return;
+    const badgeEl = document.getElementById('publish-live-status-badge');
+    if (!el && !badgeEl) return;
     const nowTs = Date.now();
     const scheduleValue = document.getElementById('publish-at-input')?.value || resultCenterSettings.publishAt || '';
     const scheduleTs = scheduleValue ? new Date(scheduleValue).getTime() : 0;
     const title = document.getElementById('publish-title')?.value?.trim() || resultCenterSettings.examLabel || 'Upcoming Exam';
-    let line = `Title: ${title}\nScheduled: ${formatDateTimeLabel(scheduleValue)}\nCurrent time: ${new Date(nowTs).toLocaleString()}`;
-    if (scheduleTs && scheduleTs > nowTs) line += `\nStatus: Scheduled (Student page will show countdown).`;
-    else if (scheduleTs && scheduleTs <= nowTs) line += `\nStatus: Publish window reached (Students can see published results).`;
-    else line += `\nStatus: No schedule set.`;
-    el.textContent = line;
+    const isNowMode = document.querySelector('input[name="publish-action"]:checked')?.value === 'publish_now';
+    
+    let line = `Exam: ${title} | Target Year: ${document.getElementById('publish-academic-year')?.value || currentAcademicYear || '-'}`;
+    if (isNowMode) {
+        line += ` | Mode: Publish Immediately`;
+        if (badgeEl) {
+            badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 self-start sm:self-auto';
+            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500"></span><span>Status: Ready to Publish Live</span>';
+        }
+    } else if (scheduleTs && scheduleTs > nowTs) {
+        line += ` | Scheduled: ${formatDateTimeLabel(scheduleValue)}`;
+        if (badgeEl) {
+            badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 self-start sm:self-auto';
+            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span><span>Status: Countdown Scheduled</span>';
+        }
+    } else if (scheduleTs && scheduleTs <= nowTs) {
+        line += ` | Live Window Reached (${formatDateTimeLabel(scheduleValue)})`;
+        if (badgeEl) {
+            badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 self-start sm:self-auto';
+            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-indigo-500"></span><span>Status: Live Published</span>';
+        }
+    } else {
+        line += ` | Mode: Scheduled (Select date & time)`;
+        if (badgeEl) {
+            badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200 self-start sm:self-auto';
+            badgeEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>Status: No schedule set</span>';
+        }
+    }
+    if (el) el.textContent = line;
 };
+
+const getPublishHistoryRecords = () => {
+    let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
+    if (!history.length && resultCenterSettings.publishAt && (resultCenterSettings.publishAcademicYear || resultCenterSettings.examLabel)) {
+        history.push({
+            id: 'legacy_active',
+            academicYear: resultCenterSettings.publishAcademicYear || currentAcademicYear || 'Current Year',
+            examKey: resultCenterSettings.publishExamKey || 'general',
+            examLabel: resultCenterSettings.examLabel || 'Active Exam Results',
+            publishType: (resultCenterSettings.publishAt && new Date(resultCenterSettings.publishAt).getTime() > Date.now()) ? 'scheduled' : 'now',
+            publishAt: resultCenterSettings.publishAt,
+            blockedClasses: Array.isArray(resultCenterSettings.blockedClasses) ? resultCenterSettings.blockedClasses : [],
+            createdAt: resultCenterSettings.updatedAt || Date.now()
+        });
+    }
+    // Reverse chronological order: newest created/published at top
+    history.sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.publishAt || 0).getTime();
+        const timeB = new Date(b.createdAt || b.publishAt || 0).getTime();
+        return timeB - timeA;
+    });
+    return history;
+};
+
+const renderPublishedHistoryTable = () => {
+    const tbody = document.getElementById('published-history-table-body');
+    if (!tbody) return;
+    const yearFilter = document.getElementById('publish-history-year-filter')?.value || '';
+    let records = getPublishHistoryRecords();
+    if (yearFilter) {
+        records = records.filter((r) => (r.academicYear || '') === yearFilter);
+    }
+    if (!records.length) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="p-8 text-center text-slate-400">
+                    <div class="flex flex-col items-center justify-center gap-1.5">
+                        <i class="fas fa-inbox text-2xl text-slate-300"></i>
+                        <span class="text-xs font-semibold">No published exam records found.</span>
+                        <span class="text-[11px] text-slate-400">Use the form above to publish or schedule results.</span>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    const now = Date.now();
+    tbody.innerHTML = records.map((record) => {
+        const isScheduled = record.publishType === 'scheduled';
+        const targetTs = record.publishAt ? new Date(record.publishAt).getTime() : 0;
+        const isLive = !isScheduled || (targetTs && targetTs <= now);
+        const blockedList = Array.isArray(record.blockedClasses) ? record.blockedClasses : [];
+
+        const modeBadge = isScheduled
+            ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200"><i class="fas fa-clock text-[10px]"></i> Auto Publish (${formatDateTimeLabel(record.publishAt)})</span>`
+            : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><i class="fas fa-bolt text-[10px]"></i> Publish Now</span>`;
+
+        const statusBadge = isLive
+            ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live</span>`
+            : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Countdown</span>`;
+
+        const blockedHtml = blockedList.length
+            ? `<div class="flex flex-wrap gap-1 max-w-xs">${blockedList.map((cls) => `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">${escapeHtml(cls)}</span>`).join('')}</div>`
+            : `<span class="text-[11px] text-emerald-600 font-semibold flex items-center gap-1"><i class="fas fa-check-circle text-[10px]"></i> All Open (None Blocked)</span>`;
+
+        return `
+            <tr class="hover:bg-slate-50/80 transition" data-id="${escapeHtml(record.id)}">
+                <td class="py-3 px-4 whitespace-nowrap">
+                    <span class="inline-block px-2.5 py-1 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        ${escapeHtml(record.academicYear || currentAcademicYear || 'N/A')}
+                    </span>
+                </td>
+                <td class="py-3 px-4">
+                    <div class="font-bold text-slate-800 text-xs">${escapeHtml(record.examLabel || record.examKey || 'Exam')}</div>
+                    <div class="text-[10px] text-slate-500 font-medium">${escapeHtml(record.examKey || '')}</div>
+                </td>
+                <td class="py-3 px-4 whitespace-nowrap">${modeBadge}</td>
+                <td class="py-3 px-4 whitespace-nowrap">${statusBadge}</td>
+                <td class="py-3 px-4">${blockedHtml}</td>
+                <td class="py-3 px-4 text-center whitespace-nowrap">
+                    <div class="inline-flex items-center gap-1">
+                        <button type="button" class="edit-publish-record-btn px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button type="button" class="delete-publish-record-btn px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+};
+
 const renderPublishControls = () => {
     const yearSelect = document.getElementById('publish-academic-year');
     const examSelect = document.getElementById('publish-exam-select');
@@ -924,6 +1075,15 @@ const renderPublishControls = () => {
     const prevExam = examSelect.value || resultCenterSettings.publishExamKey || '';
     examSelect.innerHTML = `<option value="">-- Choose Academic Exam --</option>${exams.map((exam) => `<option value="${exam.value}">${escapeHtml(exam.label)}</option>`).join('')}`;
     if (prevExam) examSelect.value = prevExam;
+
+    const historyYearSelect = document.getElementById('publish-history-year-filter');
+    if (historyYearSelect) {
+        const prevFilter = historyYearSelect.value;
+        historyYearSelect.innerHTML = '<option value="">All Academic Years</option>' + years.map((y) => `<option value="${escapeHtml(y)}">${escapeHtml(y)}</option>`).join('');
+        if (prevFilter) historyYearSelect.value = prevFilter;
+    }
+
+    renderPublishedHistoryTable();
 };
 const updateReportPreview = () => {
     const preview = document.getElementById('report-preview-summary');
@@ -2128,39 +2288,237 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
 document.getElementById('save-draft-btn')?.addEventListener('click', async () => saveMarksFromEntry(false));
 document.getElementById('save-publish-btn')?.addEventListener('click', async () => saveMarksFromEntry(true));
 
-// --- Publish Logic ---
+// --- Publish Logic & History Management ---
+const startEditingPublishRecord = (recordId) => {
+    const records = getPublishHistoryRecords();
+    const record = records.find((r) => r.id === recordId);
+    if (!record) return;
+
+    editingPublishRecordId = record.id;
+    const yearSelect = document.getElementById('publish-academic-year');
+    if (yearSelect && record.academicYear) {
+        yearSelect.value = record.academicYear;
+        renderPublishControls();
+    }
+    const examSelect = document.getElementById('publish-exam-select');
+    if (examSelect && record.examKey) {
+        examSelect.value = record.examKey;
+    }
+    const titleInput = document.getElementById('publish-title');
+    if (titleInput) {
+        titleInput.value = record.examLabel || '';
+    }
+
+    const isScheduled = record.publishType === 'scheduled';
+    const radioNow = document.querySelector('input[name="publish-action"][value="publish_now"]');
+    const radioSchedule = document.querySelector('input[name="publish-action"][value="auto_publish"]');
+    if (isScheduled && radioSchedule) {
+        radioSchedule.checked = true;
+    } else if (radioNow) {
+        radioNow.checked = true;
+    }
+    setPublishModeVisual(isScheduled ? 'auto_publish' : 'publish_now');
+
+    const publishAtInput = document.getElementById('publish-at-input');
+    if (publishAtInput && record.publishAt) {
+        try {
+            const dateObj = new Date(record.publishAt);
+            if (!Number.isNaN(dateObj.getTime())) {
+                const pad = (n) => String(n).padStart(2, '0');
+                const localStr = `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}T${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
+                publishAtInput.value = localStr;
+            }
+        } catch (_) {}
+    }
+
+    const blockedList = Array.isArray(record.blockedClasses) ? record.blockedClasses : [];
+    document.querySelectorAll('.blocked-class-checkbox').forEach((cb) => {
+        cb.checked = blockedList.includes(cb.value);
+    });
+
+    const labelSpan = document.getElementById('run-publish-btn-label');
+    if (labelSpan) labelSpan.textContent = 'Update Record';
+    const cancelBtn = document.getElementById('cancel-publish-edit-btn');
+    if (cancelBtn) cancelBtn.classList.remove('hidden');
+
+    updatePublishLiveStatus();
+    document.getElementById('publish-control-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+const cancelEditingPublishRecord = () => {
+    editingPublishRecordId = null;
+    const labelSpan = document.getElementById('run-publish-btn-label');
+    const isNow = document.querySelector('input[name="publish-action"]:checked')?.value === 'publish_now';
+    if (labelSpan) labelSpan.textContent = isNow ? 'Publish Now' : 'Save Schedule';
+    const cancelBtn = document.getElementById('cancel-publish-edit-btn');
+    if (cancelBtn) cancelBtn.classList.add('hidden');
+    renderBlockedClasses();
+    updatePublishLiveStatus();
+};
+
+const deletePublishRecord = async (recordId) => {
+    if (roleScope !== 'admin') return alert('Only admin can delete published records.');
+    if (!confirm('Are you sure you want to remove this published record from history?')) return;
+    let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
+    history = history.filter((r) => r.id !== recordId);
+
+    await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), {
+        publishHistory: history,
+        updatedAt: Date.now()
+    }, { merge: true });
+
+    resultCenterSettings.publishHistory = history;
+    if (editingPublishRecordId === recordId) {
+        cancelEditingPublishRecord();
+    }
+    renderPublishedHistoryTable();
+    notify('Published record removed from history.');
+};
+
 const runPublishAction = async () => {
     if (roleScope !== 'admin') return alert('Only admin can publish results.');
     const selectedAction = document.querySelector('input[name="publish-action"]:checked')?.value || 'publish_now';
-    const title = document.getElementById('publish-title').value.trim() || 'Latest Results';
+    const title = document.getElementById('publish-title')?.value.trim();
     const publishAcademicYear = document.getElementById('publish-academic-year')?.value || currentAcademicYear;
     const publishExamKey = document.getElementById('publish-exam-select')?.value || '';
-    if(selectedAction === 'hide') {
-        if(!confirm(`Hide results from students?`)) return;
-        await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), { publishAt: '', countdownStartedAt: '', updatedAt: Date.now() }, {merge: true});
-        alert("Results are now hidden.");
-        return;
+
+    if (!publishAcademicYear) return alert('Please select an Academic Year.');
+    if (!publishExamKey) return alert('Please select an Exam.');
+    if (!title) return alert('Please enter the Exam Name (Display).');
+
+    const blocked = Array.from(document.querySelectorAll('.blocked-class-checkbox:checked')).map((el) => el.value);
+    const isNow = selectedAction === 'publish_now';
+    let publishAt = '';
+
+    if (isNow) {
+        publishAt = new Date().toISOString();
+    } else {
+        publishAt = document.getElementById('publish-at-input')?.value;
+        if (!publishAt) return alert('Please set the Scheduled Date & Time.');
+        const targetTs = new Date(publishAt).getTime();
+        if (Number.isNaN(targetTs)) return alert('Invalid scheduled date/time.');
     }
-    if(!confirm(`Are you sure you want to proceed with ${selectedAction.replace('_', ' ')}?`)) return;
-    
-    try {
-        const publishAt = document.getElementById('publish-at-input')?.value || new Date().toISOString();
-        const isNow = selectedAction === 'publish_now';
+
+    const actionPrompt = isNow
+        ? `Are you sure you want to publish results now for ${title} (${publishAcademicYear})?\nResults will be viewable immediately by all classes except blocked: ${blocked.length ? blocked.join(', ') : 'None'}.`
+        : `Are you sure you want to schedule results for ${title} on ${formatDateTimeLabel(publishAt)}?`;
+
+    if (!confirm(actionPrompt)) return;
+
+    await withBusyButton('run-publish-action-btn', isNow ? 'Publishing...' : 'Saving Schedule...', async () => {
+        let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
+        const recordId = editingPublishRecordId || `pub_${Date.now()}`;
+        const existingIdx = history.findIndex((r) => r.id === recordId);
+
+        const newRecord = {
+            id: recordId,
+            academicYear: publishAcademicYear,
+            examKey: publishExamKey,
+            examLabel: title,
+            publishType: isNow ? 'now' : 'scheduled',
+            publishAt,
+            blockedClasses: blocked,
+            createdAt: existingIdx >= 0 && history[existingIdx].createdAt ? history[existingIdx].createdAt : Date.now(),
+            updatedAt: Date.now()
+        };
+
+        if (existingIdx >= 0) {
+            history[existingIdx] = newRecord;
+        } else {
+            history.unshift(newRecord);
+        }
+
+        if (isNow) {
+            const draftsToPublish = examResultsCache.filter((row) => {
+                if (row.published === true) return false;
+                const matchesYear = !row.academicYear || row.academicYear === publishAcademicYear;
+                const matchesExam = resultMatchesExam(row, publishExamKey);
+                const isBlocked = blocked.includes(row.classLabel);
+                return matchesYear && matchesExam && !isBlocked;
+            });
+            if (draftsToPublish.length > 0) {
+                await Promise.all(draftsToPublish.map((row) =>
+                    updateDoc(doc(db, `${BASE_PATH}/examResults`, row.id), {
+                        published: true,
+                        publishedAt: Date.now(),
+                        updatedAt: Date.now()
+                    })
+                ));
+            }
+        }
+
         await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), {
-            publishAt: isNow ? new Date().toISOString() : publishAt,
+            publishAt,
             examLabel: title,
             publishAcademicYear,
             publishExamKey,
+            blockedClasses: blocked,
+            publishHistory: history,
             locked: false,
             updatedAt: Date.now(),
             countdownStartedAt: isNow ? '' : ((publishAt && new Date(publishAt).getTime() > Date.now()) ? Date.now() : '')
-        }, {merge: true});
-        alert(isNow ? "Results Published Successfully!" : "Auto publish schedule saved.");
-    } catch (e) {
-        console.error(e); alert("Action failed.");
-    }
+        }, { merge: true });
+
+        resultCenterSettings.publishHistory = history;
+        resultCenterSettings.blockedClasses = blocked;
+        resultCenterSettings.publishAt = publishAt;
+        resultCenterSettings.examLabel = title;
+        resultCenterSettings.publishAcademicYear = publishAcademicYear;
+        resultCenterSettings.publishExamKey = publishExamKey;
+
+        cancelEditingPublishRecord();
+        renderPublishedHistoryTable();
+        alert(isNow ? 'Results Published Successfully!' : 'Auto publish schedule saved successfully!');
+    });
 };
+
 document.getElementById('run-publish-action-btn')?.addEventListener('click', runPublishAction);
+document.getElementById('cancel-publish-edit-btn')?.addEventListener('click', cancelEditingPublishRecord);
+
+// Mode cards toggling
+document.querySelectorAll('input[name="publish-action"]').forEach((radio) => {
+    radio.addEventListener('change', () => setPublishModeVisual(radio.value));
+});
+document.getElementById('mode-card-now')?.addEventListener('click', () => {
+    const radio = document.querySelector('input[name="publish-action"][value="publish_now"]');
+    if (radio && !radio.checked) {
+        radio.checked = true;
+        setPublishModeVisual('publish_now');
+    }
+});
+document.getElementById('mode-card-schedule')?.addEventListener('click', () => {
+    const radio = document.querySelector('input[name="publish-action"][value="auto_publish"]');
+    if (radio && !radio.checked) {
+        radio.checked = true;
+        setPublishModeVisual('auto_publish');
+    }
+});
+
+// Block class selection helpers
+document.getElementById('select-all-blocked-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.blocked-class-checkbox').forEach((cb) => { cb.checked = true; });
+});
+document.getElementById('clear-all-blocked-btn')?.addEventListener('click', () => {
+    document.querySelectorAll('.blocked-class-checkbox').forEach((cb) => { cb.checked = false; });
+});
+
+// Published History Table Event Delegation
+document.getElementById('published-history-table-body')?.addEventListener('click', (e) => {
+    const editBtn = e.target.closest('.edit-publish-record-btn');
+    if (editBtn) {
+        const id = editBtn.dataset.id;
+        if (id) startEditingPublishRecord(id);
+        return;
+    }
+    const delBtn = e.target.closest('.delete-publish-record-btn');
+    if (delBtn) {
+        const id = delBtn.dataset.id;
+        if (id) deletePublishRecord(id);
+        return;
+    }
+});
+document.getElementById('publish-history-year-filter')?.addEventListener('change', renderPublishedHistoryTable);
+
 ['publish-title', 'publish-at-input'].forEach((id) => {
     document.getElementById(id)?.addEventListener('input', updatePublishLiveStatus);
     document.getElementById(id)?.addEventListener('change', updatePublishLiveStatus);
@@ -3535,6 +3893,12 @@ const activateSettingsSubpanel = (subtabId) => {
     // If promotion subpanel is selected, refresh candidates UI
     if (subtabId === 'subpanel-promotion') {
         renderPromotionCandidatesUI();
+    }
+    // If publish subpanel is selected, refresh publish controls and history table
+    if (subtabId === 'subpanel-publish') {
+        renderPublishControls();
+        renderBlockedClasses();
+        renderPublishedHistoryTable();
     }
 };
 
