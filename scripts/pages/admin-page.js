@@ -170,6 +170,7 @@ const rebuildStaffAccessIndex = async (staffRecords = []) => {
             canAccessWorksheet: staffRecord.canAccessWorksheet !== false,
             canManageResults: staffRecord.canManageResults === true,
             canAccessAdmin: staffRecord.canAccessAdmin === true,
+            actLikeSuperAdmin: staffRecord.actLikeSuperAdmin === true,
             name: staffRecord.name || '',
             role: staffRecord.role || '',
             type: staffRecord.type || '',
@@ -5847,9 +5848,21 @@ onAuthStateChanged(auth, async (user) => {
             let authorizedStaffAdmin = null;
             if (staffEmailFromSession) {
                 const staffSnap = await getDocs(query(collection(db, `${BASE_PATH}/staff`), where('email', '==', staffEmailFromSession)));
-                const staffRow = staffSnap.docs[0]?.data() || null;
-                if (staffRow && staffRow.isActive !== false && staffRow.canAccessAdmin === true) {
-                    authorizedStaffAdmin = { id: staffSnap.docs[0].id, ...staffRow };
+                let staffDocFound = staffSnap.docs.find(d => {
+                    const row = d.data();
+                    return row.isActive !== false && row.canAccessAdmin === true;
+                });
+                if (!staffDocFound) {
+                    const allStaffSnap = await getDocs(collection(db, `${BASE_PATH}/staff`));
+                    staffDocFound = allStaffSnap.docs.find(d => {
+                        const row = d.data();
+                        const sEmail = (row.email || '').toLowerCase().trim();
+                        const sUsername = (row.username || '').toLowerCase().trim();
+                        return (sEmail === staffEmailFromSession || sUsername === staffEmailFromSession) && row.isActive !== false && row.canAccessAdmin === true;
+                    });
+                }
+                if (staffDocFound) {
+                    authorizedStaffAdmin = { id: staffDocFound.id, ...staffDocFound.data() };
                 }
             }
             if (!authorizedStaffAdmin && (window.AppSession?.getStaffAccess?.()?.canAccessAdmin === true || window.AppSession?.getStaffAccess?.()?.admin === true)) {
