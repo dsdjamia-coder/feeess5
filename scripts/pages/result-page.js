@@ -1609,14 +1609,38 @@ const renderPublishedDraftTables = () => {
 };
 
 // --- Exam Setup Logic ---
-const buildSubjectRowHtml = (row = {}) => `
+const getAvailableSubjectTotals = (selectedVal) => {
+    const scales = getEffectiveGradeScales();
+    const totals = new Set(Object.keys(scales).map(Number).filter((n) => Number.isFinite(n) && n > 0));
+    totals.add(100);
+    totals.add(50);
+    if (selectedVal && Number.isFinite(Number(selectedVal)) && Number(selectedVal) > 0) {
+        totals.add(Number(selectedVal));
+    }
+    return Array.from(totals).sort((a, b) => b - a);
+};
+
+const refreshSubjectTotalDropdowns = (newTotal) => {
+    document.querySelectorAll('#subject-rows-body .subject-total-input').forEach((selectEl) => {
+        const currentVal = Number(selectEl.value || 100);
+        const availableTotals = getAvailableSubjectTotals(currentVal);
+        selectEl.innerHTML = availableTotals.map((val) => `<option value="${val}" ${val === currentVal ? 'selected' : ''}>${val}</option>`).join('');
+    });
+};
+
+const buildSubjectRowHtml = (row = {}) => {
+    const rowMax = Number(row.maxMarks ?? 100);
+    const availableTotals = getAvailableSubjectTotals(rowMax);
+    const optionsHtml = availableTotals.map((val) => `<option value="${val}" ${val === rowMax ? 'selected' : ''}>${val}</option>`).join('');
+    return `
     <tr class="subject-row border-t">
         <td class="p-2"><input type="text" class="subject-name-input w-full p-2 border rounded" value="${escapeHtml(row.name || '')}" placeholder="Subject name"></td>
-        <td class="p-2"><select class="subject-total-input w-full p-2 border rounded"><option value="100" ${(Number(row.maxMarks ?? 100) === 100) ? 'selected' : ''}>100</option><option value="50" ${(Number(row.maxMarks ?? 100) === 50) ? 'selected' : ''}>50</option></select></td>
+        <td class="p-2"><select class="subject-total-input w-full p-2 border rounded">${optionsHtml}</select></td>
         <td class="p-2"><input type="number" class="subject-pass-input w-full p-2 border rounded" value="${escapeHtml(String(row.passMarks ?? 35))}" min="0"></td>
         <td class="p-2"><button type="button" class="subject-remove-row text-red-600 font-bold">✕</button></td>
     </tr>
 `;
+};
 const renderExamSetup = () => {
     const cont = document.getElementById('exam-list-container');
     if (!cont) return;
@@ -2962,6 +2986,7 @@ document.getElementById('save-grade-rules-btn')?.addEventListener('click', async
     });
 
     renderGradeRules(total);
+    refreshSubjectTotalDropdowns(total);
     alert(`Grade scale for ${total} marks successfully saved.`);
 });
 
