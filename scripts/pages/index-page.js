@@ -914,19 +914,43 @@ import { BASE_PATH, applyInstitutionBranding, escapeHtml, hardenExternalLinks, n
                             return;
                         }
                         const collectorKey = String(activeCollector.email || activeCollector.username || userLogin).trim().toLowerCase();
-                        if (activeCollector.canAccessAdmin === true) {
-                            window.AppSession?.startAdmin();
-                        } else {
-                            window.AppSession?.startStaff(activeCollector.name || '', collectorKey, {
-                                collection: activeCollector.canCollect !== false,
-                                result: activeCollector.canManageResults === true,
-                                worksheet: activeCollector.canAccessWorksheet !== false,
-                                admin: activeCollector.canAccessAdmin === true,
-                                source: 'staff',
-                                userKey: collectorKey,
-                                loginId: userLogin
-                            });
-                        }
+                        const staffAccess = {
+                            collection: activeCollector.canCollect !== false,
+                            result: activeCollector.canManageResults === true,
+                            worksheet: activeCollector.canAccessWorksheet !== false,
+                            admin: activeCollector.canAccessAdmin === true,
+                            canAccessAdmin: activeCollector.canAccessAdmin === true,
+                            actLikeSuperAdmin: activeCollector.actLikeSuperAdmin === true,
+                            staffId: activeCollector.id,
+                            name: activeCollector.name || '',
+                            phone: activeCollector.phone || '',
+                            role: activeCollector.role || activeCollector.type || 'Staff',
+                            type: activeCollector.type || 'Staff',
+                            photo: activeCollector.photo || '',
+                            source: 'staff',
+                            userKey: collectorKey,
+                            loginId: userLogin
+                        };
+                        window.AppSession?.startStaff(activeCollector.name || '', collectorKey, staffAccess);
+
+                        const officialSessionObj = {
+                            id: activeCollector.id,
+                            name: activeCollector.name || '',
+                            username: collectorKey,
+                            email: activeCollector.email || '',
+                            phone: activeCollector.phone || '',
+                            role: activeCollector.role || activeCollector.type || 'Staff',
+                            type: activeCollector.type || 'Staff',
+                            photo: activeCollector.photo || '',
+                            canAccessAdmin: activeCollector.canAccessAdmin === true,
+                            actLikeSuperAdmin: activeCollector.actLikeSuperAdmin === true,
+                            canCollect: activeCollector.canCollect !== false,
+                            canAccessWorksheet: activeCollector.canAccessWorksheet !== false,
+                            canManageResults: activeCollector.canManageResults === true,
+                            source: 'staff',
+                            access: staffAccess
+                        };
+                        localStorage.setItem('official_portal_session_v1', JSON.stringify(officialSessionObj));
                         window.location.href = 'official.html';
                         return;
                     } else {

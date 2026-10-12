@@ -329,11 +329,12 @@ const normalizeEmail = (email = '') => String(email || '').trim().toLowerCase();
 const getEffectiveStaffEmail = () => normalizeEmail(currentUserEmail || window.AppSession?.getStaffEmail?.() || auth.currentUser?.email || '');
 const getCollectorKey = () => normalizeEmail(currentCollectorKey || window.AppSession?.getStaffAccess?.()?.userKey || window.AppSession?.getStaffAccess?.()?.loginId || getEffectiveStaffEmail());
 const getCollectorDisplayName = () => {
-    if (isCurrentAdmin) return 'Administrator';
     const key = getCollectorKey();
-    const staffMatch = allStaff.find(s => normalizeEmail(s.email) === key || String(s.loginId || '').trim().toLowerCase() === key);
+    const staffMatch = allStaff.find(s => normalizeEmail(s.email) === key || String(s.loginId || '').trim().toLowerCase() === key || normalizeEmail(s.name) === key);
     if (staffMatch?.name) return staffMatch.name;
-    return window.AppSession?.getStaffName?.() || currentUserEmail || key || 'Collector';
+    if (window.AppSession?.getStaffName?.()) return window.AppSession.getStaffName();
+    if (isCurrentAdmin && !window.AppSession?.getStaffAccess?.()) return 'Administrator';
+    return currentUserEmail || key || 'Collector';
 };
 window.getCollectorKey = getCollectorKey;
 window.getCollectorDisplayName = getCollectorDisplayName;
@@ -719,7 +720,27 @@ document.getElementById('tab-settings-save-btn')?.addEventListener('click', () =
 
 document.getElementById('open-profile-btn')?.addEventListener('click', (e) => {
     e.preventDefault();
-    if(isCurrentAdmin) {
+    const searchKey = getCollectorKey();
+    const myData = allStaff.find(s => normalizeEmail(s.email) === searchKey || String(s.loginId || '').toLowerCase() === searchKey || normalizeEmail(s.name) === searchKey);
+    const staffAccess = window.AppSession?.getStaffAccess?.();
+
+    if(myData) {
+        document.getElementById('my-prof-name').textContent = myData.name || 'Staff';
+        document.getElementById('my-prof-role').textContent = myData.role || myData.type || 'Staff';
+        document.getElementById('my-prof-email').textContent = myData.email || '-';
+        document.getElementById('my-prof-phone').textContent = myData.phone || '-';
+        document.getElementById('my-prof-msr').textContent = myData.msr || '-';
+        document.getElementById('my-prof-addr').textContent = myData.address || '-';
+        document.getElementById('my-prof-img').src = myData.photo || "https://via.placeholder.com/150";
+    } else if (staffAccess) {
+        document.getElementById('my-prof-name').textContent = window.AppSession?.getStaffName?.() || 'Staff';
+        document.getElementById('my-prof-role').textContent = staffAccess.role || staffAccess.type || 'Staff';
+        document.getElementById('my-prof-email').textContent = window.AppSession?.getStaffEmail?.() || '-';
+        document.getElementById('my-prof-phone').textContent = staffAccess.phone || '-';
+        document.getElementById('my-prof-msr').textContent = '-';
+        document.getElementById('my-prof-addr').textContent = '-';
+        document.getElementById('my-prof-img').src = staffAccess.photo || "https://via.placeholder.com/150";
+    } else if(isCurrentAdmin) {
         document.getElementById('my-prof-name').textContent = "Administrator";
         document.getElementById('my-prof-role').textContent = "Master Admin";
         document.getElementById('my-prof-email').textContent = currentUserEmail || 'admin@institute.com';
@@ -727,19 +748,6 @@ document.getElementById('open-profile-btn')?.addEventListener('click', (e) => {
         document.getElementById('my-prof-msr').textContent = "-";
         document.getElementById('my-prof-addr').textContent = "System Administrator Account";
         document.getElementById('my-prof-img').src = "assets/images/logo.png";
-    } else {
-        const searchKey = getCollectorKey();
-        const myData = allStaff.find(s => normalizeEmail(s.email) === searchKey || String(s.loginId).toLowerCase() === searchKey);
-        
-        if(myData) {
-            document.getElementById('my-prof-name').textContent = myData.name || 'Staff';
-            document.getElementById('my-prof-role').textContent = myData.role || myData.type || 'Staff';
-            document.getElementById('my-prof-email').textContent = myData.email || '-';
-            document.getElementById('my-prof-phone').textContent = myData.phone || '-';
-            document.getElementById('my-prof-msr').textContent = myData.msr || '-';
-            document.getElementById('my-prof-addr').textContent = myData.address || '-';
-            document.getElementById('my-prof-img').src = myData.photo || "https://via.placeholder.com/150";
-        }
     }
     document.getElementById('my-profile-popup').classList.remove('hidden');
     document.getElementById('my-profile-popup').classList.add('flex');

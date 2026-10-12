@@ -354,16 +354,26 @@
                             </label>
 
                             <!-- Portal 4: Admin Panel -->
-                            <label class="flex items-start justify-between p-3 rounded-xl bg-white border border-gray-200 hover:border-violet-300 shadow-2xs cursor-pointer transition">
-                                <div class="pr-2">
-                                    <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                                        <i class="fas fa-user-shield text-violet-600"></i>
-                                        <span>4. Admin Panel</span>
+                            <div class="rounded-xl bg-white border border-gray-200 hover:border-violet-300 shadow-2xs transition p-3">
+                                <label class="flex items-start justify-between cursor-pointer">
+                                    <div class="pr-2">
+                                        <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                                            <i class="fas fa-user-shield text-violet-600"></i>
+                                            <span>4. Admin Panel</span>
+                                        </div>
+                                        <p class="text-[10px] text-slate-500 mt-1">Full system & settings control</p>
                                     </div>
-                                    <p class="text-[10px] text-slate-500 mt-1">Full system & settings control</p>
+                                    <input type="checkbox" id="st-can-access-admin" class="w-4 h-4 mt-0.5 rounded text-violet-600 shrink-0">
+                                </label>
+                                <!-- Sub-option: Act like Super Admin -->
+                                <div id="st-super-admin-subwrap" class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between pl-2.5 pr-1 py-1 rounded-lg bg-amber-50/70 border border-amber-200">
+                                    <label for="st-act-like-super-admin" class="cursor-pointer text-[11px] font-semibold text-amber-900 flex items-center gap-1.5">
+                                        <i class="fas fa-crown text-amber-500 text-xs"></i>
+                                        <span>Act like Super Admin</span>
+                                    </label>
+                                    <input type="checkbox" id="st-act-like-super-admin" class="w-4 h-4 rounded text-amber-600 shrink-0">
                                 </div>
-                                <input type="checkbox" id="st-can-access-admin" class="w-4 h-4 mt-0.5 rounded text-violet-600 shrink-0">
-                            </label>
+                            </div>
                         </div>
                     </div>
 
@@ -1098,16 +1108,26 @@
                         <input type="checkbox" id="e-st-can-manage-results" class="w-4 h-4 mt-0.5 rounded text-indigo-600 shrink-0">
                     </label>
 
-                    <label class="flex items-start justify-between p-2.5 rounded-xl bg-white border border-gray-200 hover:border-violet-300 shadow-2xs cursor-pointer transition">
-                        <div class="pr-2">
-                            <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                                <i class="fas fa-user-shield text-violet-600"></i>
-                                <span>4. Admin Panel</span>
+                    <div class="rounded-xl bg-white border border-gray-200 hover:border-violet-300 shadow-2xs transition p-2.5">
+                        <label class="flex items-start justify-between cursor-pointer">
+                            <div class="pr-2">
+                                <div class="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                                    <i class="fas fa-user-shield text-violet-600"></i>
+                                    <span>4. Admin Panel</span>
+                                </div>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Full system & settings control</p>
                             </div>
-                            <p class="text-[10px] text-slate-500 mt-0.5">Full system & settings control</p>
+                            <input type="checkbox" id="e-st-can-access-admin" class="w-4 h-4 mt-0.5 rounded text-violet-600 shrink-0">
+                        </label>
+                        <!-- Sub-option: Act like Super Admin -->
+                        <div id="e-st-super-admin-subwrap" class="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between pl-2.5 pr-1 py-1 rounded-lg bg-amber-50/70 border border-amber-200">
+                            <label for="e-st-act-like-super-admin" class="cursor-pointer text-[11px] font-semibold text-amber-900 flex items-center gap-1.5">
+                                <i class="fas fa-crown text-amber-500 text-xs"></i>
+                                <span>Act like Super Admin</span>
+                            </label>
+                            <input type="checkbox" id="e-st-act-like-super-admin" class="w-4 h-4 rounded text-amber-600 shrink-0">
                         </div>
-                        <input type="checkbox" id="e-st-can-access-admin" class="w-4 h-4 mt-0.5 rounded text-violet-600 shrink-0">
-                    </label>
+                    </div>
                 </div>
             </div>
 

@@ -404,25 +404,26 @@ import { signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword } fro
 
     const evaluateModulePermissions = () => {
       const role = window.AppSession?.getRole?.() || '';
-      const isAdmin = role === 'admin' || userSession?.source === 'firebase' || userSession?.source === 'legacy-admin' || userSession?.type === 'Admin';
+      const isStaffSession = userSession?.source === 'staff' || role === 'staff' || Boolean(window.AppSession?.getStaffAccess?.());
+      const isMasterAdmin = !isStaffSession && (role === 'admin' || userSession?.source === 'firebase' || userSession?.source === 'legacy-admin' || userSession?.type === 'Admin');
       
       let canCollection = false;
       let canResult = false;
       let canWorksheet = false;
       let canAdmin = false;
 
-      if (isAdmin) {
+      if (isMasterAdmin) {
         canCollection = true;
         canResult = true;
         canWorksheet = true;
         canAdmin = true;
-      } else if (userSession?.source === 'staff' || role === 'staff') {
+      } else if (isStaffSession) {
         const staffProfile = getCurrentSessionProfile() || {};
-        const staffAccess = window.AppSession?.getStaffAccess?.() || {};
+        const staffAccess = window.AppSession?.getStaffAccess?.() || userSession?.access || {};
         canCollection = staffAccess.collection === true || (staffProfile.canCollect !== false && staffProfile.canCollect !== undefined);
         canResult = staffAccess.result === true || staffProfile.canManageResults === true;
         canWorksheet = staffAccess.worksheet !== false && staffProfile.canAccessWorksheet !== false;
-        canAdmin = staffAccess.admin === true || staffProfile.canAccessAdmin === true;
+        canAdmin = staffAccess.admin === true || staffAccess.canAccessAdmin === true || staffProfile.canAccessAdmin === true || staffProfile.actLikeSuperAdmin === true;
       } else if (userSession?.source === 'directory') {
         const entry = directoryEntries.find((item) => item.id === userSession.id);
         const access = getPageAccessItem(entry?.categoryId || userSession.categoryId, entry?.id || userSession.id);
@@ -449,9 +450,11 @@ import { signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword } fro
       const stats = summaryStats();
       const perms = evaluateModulePermissions();
       const role = window.AppSession?.getRole?.() || '';
-      const isAdmin = perms.admin;
-      const userName = userSession?.name || (isAdmin ? 'Administrator' : 'Staff Member');
-      const userRoleLabel = isAdmin ? 'Super Administrator' : (userSession?.type || (role === 'staff' ? 'Staff Member' : 'Official'));
+      const isStaffSession = userSession?.source === 'staff' || role === 'staff' || Boolean(window.AppSession?.getStaffAccess?.());
+      const isMasterAdmin = !isStaffSession && (role === 'admin' || userSession?.source === 'firebase' || userSession?.source === 'legacy-admin');
+      const staffProfile = isStaffSession ? getCurrentSessionProfile() : null;
+      const userName = staffProfile?.name || userSession?.name || (isMasterAdmin ? 'Administrator' : 'Staff Member');
+      const userRoleLabel = isMasterAdmin ? 'Super Administrator' : (staffProfile?.role || staffProfile?.type || userSession?.type || 'Staff Member');
 
       const modules = [
         {
@@ -1817,8 +1820,14 @@ import { signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword } fro
     };
 
     const getCurrentSessionProfile = () => {
-      if (userSession?.source === 'staff') {
-        return allStaff.find((staff) => staff.id === userSession.id || normalizeText(staff.email) === normalizeText(userSession.username) || normalizeText(staff.name) === normalizeText(userSession.name)) || userSession;
+      const isStaff = userSession?.source === 'staff' || window.AppSession?.getRole?.() === 'staff' || Boolean(window.AppSession?.getStaffAccess?.());
+      if (isStaff) {
+        const staffEmail = normalizeText(userSession?.username || userSession?.email || window.AppSession?.getStaffEmail?.() || window.AppSession?.getStaffAccess?.()?.userKey || '');
+        const staffName = normalizeText(userSession?.name || window.AppSession?.getStaffName?.() || '');
+        const staffId = userSession?.id || window.AppSession?.getStaffAccess?.()?.staffId || '';
+        const found = allStaff.find((staff) => (staffId && staff.id === staffId) || (staffEmail && normalizeText(staff.email) === staffEmail) || (staffEmail && normalizeText(staff.username) === staffEmail) || (staffName && normalizeText(staff.name) === staffName));
+        if (found) return found;
+        return userSession || {};
       }
       if (userSession?.source === 'directory') {
         const entry = directoryEntries.find((item) => item.id === userSession.id);
@@ -3783,15 +3792,15 @@ import { signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword } fro
       document.getElementById('official-app')?.classList.remove('hidden');
 
       const role = window.AppSession?.getRole?.() || '';
-      const isAdmin = role === 'admin' || userSession?.source === 'firebase' || userSession?.source === 'legacy-admin' || userSession?.type === 'Admin';
-      const userName = userSession?.name || (isAdmin ? 'Administrator' : 'Staff Member');
-      const userRole = isAdmin ? 'Super Admin' : (userSession?.type || 'Staff');
+      const isStaffSession = userSession?.source === 'staff' || role === 'staff' || Boolean(window.AppSession?.getStaffAccess?.());
+      const isMasterAdmin = !isStaffSession && (role === 'admin' || userSession?.source === 'firebase' || userSession?.source === 'legacy-admin' || userSession?.type === 'Admin');
 
       const profile = getCurrentSessionProfile() || {};
       const isDirectory = userSession?.source === 'directory';
       const resolvedName = isDirectory
         ? (profile.values?.name || userSession?.name || 'Staff Member')
-        : (profile.name || userSession?.name || (isAdmin ? 'Administrator' : 'Staff Member'));
+        : (profile.name || userSession?.name || (isMasterAdmin ? 'Administrator' : 'Staff Member'));
+      const userRole = isMasterAdmin ? 'Super Admin' : (profile.role || profile.type || userSession?.type || 'Staff');
       const rawPhoto = isDirectory
         ? (profile.values?.photo || profile.values?.image || '')
         : (profile.photo || profile.image || profile.customValues?.photo || '');
@@ -3855,12 +3864,18 @@ import { signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword } fro
             const rawState = localStorage.getItem(stateKey);
             const state = rawState ? JSON.parse(rawState) : {};
 
+            const isStaffState = role === 'staff' || Boolean(state.access) || state.access?.source === 'staff';
             userSession = {
-              name: state.name || (role === 'admin' ? 'Super Admin' : 'Staff'),
-              username: state.email || (role === 'admin' ? 'admin' : (state.userKey || 'staff')),
-              type: role === 'admin' ? 'Admin' : 'Staff',
-              source: role === 'admin' ? 'firebase' : (state.access?.source || 'staff'),
-              access: state.access || null
+              name: state.name || (isStaffState ? 'Staff' : 'Super Admin'),
+              username: state.email || (isStaffState ? (state.userKey || 'staff') : 'admin'),
+              type: isStaffState ? (state.access?.type || 'Staff') : 'Admin',
+              role: isStaffState ? (state.access?.role || 'Staff') : 'Super Admin',
+              source: isStaffState ? 'staff' : 'firebase',
+              access: state.access || null,
+              id: state.access?.staffId || state.id || '',
+              phone: state.access?.phone || '',
+              photo: state.access?.photo || '',
+              actLikeSuperAdmin: state.access?.actLikeSuperAdmin === true
             };
             hasValidSession = true;
           }

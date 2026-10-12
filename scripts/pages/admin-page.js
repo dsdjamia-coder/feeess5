@@ -138,6 +138,7 @@ const syncStaffAccessRecord = async (staffRecord = {}) => {
         canAccessWorksheet: staffRecord.canAccessWorksheet !== false,
         canManageResults: staffRecord.canManageResults === true,
         canAccessAdmin: staffRecord.canAccessAdmin === true,
+        actLikeSuperAdmin: staffRecord.actLikeSuperAdmin === true,
         name: staffRecord.name || '',
         role: staffRecord.role || '',
         type: staffRecord.type || '',
@@ -1787,6 +1788,7 @@ const extractAndValidateStaffForm = (prefix = 'st') => {
     const canAccessWorksheet = document.getElementById(`${prefix}-can-worksheet`)?.checked !== false;
     const canManageResults = document.getElementById(`${prefix}-can-manage-results`)?.checked === true;
     const canAccessAdmin = document.getElementById(`${prefix}-can-access-admin`)?.checked === true;
+    const actLikeSuperAdmin = canAccessAdmin && (document.getElementById(`${prefix}-act-like-super-admin`)?.checked === true);
     const displayOrder = Math.max(1, Number(document.getElementById(`${prefix}-display-order`)?.value || 999));
 
     const hasAnyPortalAccess = canCollect || canAccessWorksheet || canManageResults || canAccessAdmin;
@@ -1813,6 +1815,7 @@ const extractAndValidateStaffForm = (prefix = 'st') => {
         canAccessWorksheet,
         canManageResults,
         canAccessAdmin,
+        actLikeSuperAdmin,
         displayOrder,
         updatedAt: Date.now()
     };
@@ -1837,6 +1840,8 @@ document.getElementById('add-staff-btn').addEventListener('click', async () => {
     document.getElementById('st-can-worksheet').checked = true;
     document.getElementById('st-can-manage-results').checked = false;
     document.getElementById('st-can-access-admin').checked = false;
+    const stSuperEl = document.getElementById('st-act-like-super-admin');
+    if (stSuperEl) stSuperEl.checked = false;
     btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus mr-2"></i> Add Staff';
 });
 
@@ -1893,7 +1898,7 @@ const renderStaffList = () => {
                             ${staffMember.canCollect !== false ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200">1. Collection</span>' : ''}
                             ${staffMember.canAccessWorksheet !== false ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">2. Worksheet</span>' : ''}
                             ${staffMember.canManageResults ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">3. Result</span>' : ''}
-                            ${staffMember.canAccessAdmin ? '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">4. Admin</span>' : ''}
+                            ${staffMember.canAccessAdmin ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">4. Admin${staffMember.actLikeSuperAdmin ? ' (Super)' : ''}</span>` : ''}
                         </div>
                     </div>
                 </div>
@@ -1968,6 +1973,8 @@ window.openEditStaff = (id) => {
     document.getElementById('e-st-can-worksheet').checked = s.canAccessWorksheet !== false;
     document.getElementById('e-st-can-manage-results').checked = s.canManageResults === true;
     document.getElementById('e-st-can-access-admin').checked = s.canAccessAdmin === true;
+    const eSuperEl = document.getElementById('e-st-act-like-super-admin');
+    if (eSuperEl) eSuperEl.checked = s.actLikeSuperAdmin === true;
     document.getElementById('edit-staff-popup').classList.remove('hidden'); document.getElementById('edit-staff-popup').classList.add('flex');
 };
 document.getElementById('manage-staff-page').addEventListener('click', (e) => {
@@ -5830,22 +5837,45 @@ onAuthStateChanged(auth, async (user) => {
         const wantsResultsTab = false;
 
         if (!matchingAdmin) {
-            const staffEmailFromSession = normalizeEmail(window.AppSession?.getStaffEmail?.() || currentAdminEmail || '');
+            const staffEmailFromSession = normalizeEmail(window.AppSession?.getStaffEmail?.() || window.AppSession?.getStaffAccess?.()?.userKey || currentAdminEmail || '');
             let authorizedStaffAdmin = null;
             if (staffEmailFromSession) {
                 const staffSnap = await getDocs(query(collection(db, `${BASE_PATH}/staff`), where('email', '==', staffEmailFromSession)));
                 const staffRow = staffSnap.docs[0]?.data() || null;
                 if (staffRow && staffRow.isActive !== false && staffRow.canAccessAdmin === true) {
-                    authorizedStaffAdmin = staffRow;
+                    authorizedStaffAdmin = { id: staffSnap.docs[0].id, ...staffRow };
                 }
             }
+            if (!authorizedStaffAdmin && (window.AppSession?.getStaffAccess?.()?.canAccessAdmin === true || window.AppSession?.getStaffAccess?.()?.admin === true)) {
+                const access = window.AppSession.getStaffAccess();
+                authorizedStaffAdmin = {
+                    name: window.AppSession.getStaffName?.() || '',
+                    email: staffEmailFromSession,
+                    canAccessAdmin: true,
+                    actLikeSuperAdmin: access?.actLikeSuperAdmin === true
+                };
+            }
             if (!authorizedStaffAdmin && window.AppSession?.getRole?.() === 'admin') {
-                // Allowed via staff admin session from index login
+                // Allowed via master admin session
                 currentAdminRole = 'super_admin';
             } else if (authorizedStaffAdmin) {
-                currentAdminRole = 'super_admin';
+                currentAdminRole = authorizedStaffAdmin.actLikeSuperAdmin === true ? 'super_admin' : 'operations_admin';
                 currentAdminEmail = staffEmailFromSession;
-                window.AppSession?.startAdmin();
+                // Preserve staff identity in session rather than generic admin
+                window.AppSession?.startStaff(authorizedStaffAdmin.name || window.AppSession?.getStaffName?.() || '', staffEmailFromSession, {
+                    ...(window.AppSession?.getStaffAccess?.() || {}),
+                    collection: authorizedStaffAdmin.canCollect !== false,
+                    result: authorizedStaffAdmin.canManageResults === true,
+                    worksheet: authorizedStaffAdmin.canAccessWorksheet !== false,
+                    admin: true,
+                    canAccessAdmin: true,
+                    actLikeSuperAdmin: authorizedStaffAdmin.actLikeSuperAdmin === true,
+                    staffId: authorizedStaffAdmin.id || '',
+                    role: authorizedStaffAdmin.role || authorizedStaffAdmin.type || 'Staff',
+                    type: authorizedStaffAdmin.type || 'Staff',
+                    phone: authorizedStaffAdmin.phone || '',
+                    photo: authorizedStaffAdmin.photo || ''
+                });
             } else if (!wantsResultsTab) {
                 alert("അനധികൃത പ്രവേശനം! നിങ്ങൾക്കീ പേജിൽ പ്രവേശിക്കാൻ അനുമതിയില്ല.");
                 await window.AppSession?.clearAll({ purgeClientData: true });

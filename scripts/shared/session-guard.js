@@ -268,11 +268,15 @@
         },
         guardStaffPageAccess(requiredPage = 'collection') {
             pruneExpiredStates();
-            if (hasAdminSession()) {
+            if (hasAdminSession() && !hasStaffSession()) {
                 setCurrentRole('admin');
                 return;
             }
             if (!hasStaffSession()) {
+                if (hasAdminSession()) {
+                    setCurrentRole('admin');
+                    return;
+                }
                 redirectHome('Your staff session expired. Please log in again.');
                 return;
             }
@@ -304,6 +308,13 @@
             if (hasAdminSession()) {
                 setCurrentRole('admin');
                 return;
+            }
+            if (hasStaffSession()) {
+                const access = this.getStaffAccess();
+                if (access && (access.canAccessAdmin === true || access.admin === true || access.actLikeSuperAdmin === true)) {
+                    setCurrentRole('staff');
+                    return;
+                }
             }
             if (wantsResultsTab && hasStaffSession()) {
                 // Allow result-operator/staff users to reach admin.html#results.
