@@ -232,9 +232,20 @@ const resolveResultAccess = async ({ isAdminUser = false, staffDocs = [], user =
 };
 const resultMatchesExam = (row = {}, value = '') => {
     if (!value) return true;
+    if (row.examKey === value || row.examType === value) return true;
+    if (row.examId === value) return true;
     const { schemaId, examKey } = parseExamValue(value);
-    if (schemaId === '__all' && examKey) return row.examKey === examKey || String(row.examId || '').endsWith(`::${examKey}`) || String(row.examId || '').endsWith(`_${examKey}`);
-    return row.examId === value || (schemaId && row.schemaId === schemaId && row.examKey === examKey) || row.examId === schemaId;
+    if (examKey && (row.examKey === examKey || row.examType === examKey)) {
+        if (!schemaId || schemaId === '__all' || row.schemaId === schemaId || !row.schemaId) {
+            return true;
+        }
+    }
+    if (schemaId && schemaId !== '__all' && (row.schemaId === schemaId || row.examId === schemaId)) {
+        if (!examKey || row.examKey === examKey) return true;
+    }
+    const rowExamId = String(row.examId || '');
+    if (rowExamId.endsWith(`::${value}`) || rowExamId.endsWith(`_${value}`)) return true;
+    return false;
 };
 const notify = (message = '', type = 'info') => {
     if (!message) return;
@@ -2397,8 +2408,6 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
         publishBtn.disabled = false;
     }
 };
-    }
-};
 document.getElementById('save-draft-btn')?.addEventListener('click', async () => saveMarksFromEntry(false));
 document.getElementById('save-publish-btn')?.addEventListener('click', async () => saveMarksFromEntry(true));
 
@@ -2621,9 +2630,16 @@ const runPublishAction = async () => {
         if (Number.isNaN(targetTs)) return alert('Invalid scheduled date/time.');
     }
 
-    const actionPrompt = isNow
+    const existingRec = getPublishHistoryRecords().find((r) => r.academicYear === publishAcademicYear && r.examKey === publishExamKey);
+    const isAlreadyLive = existingRec && (existingRec.publishType !== 'unpublished' && existingRec.status !== 'Unpublished');
+
+    let actionPrompt = isNow
         ? `Are you sure you want to publish results now for ${title} (${publishAcademicYear})?\nResults will be viewable immediately by all classes except blocked: ${blocked.length ? blocked.join(', ') : 'None'}.`
         : `Are you sure you want to schedule results for ${title} on ${formatDateTimeLabel(publishAt)}?`;
+
+    if (isAlreadyLive && !editingPublishRecordId) {
+        actionPrompt = `Notice: "${title} (${publishAcademicYear})" is already published.\n\nDo you want to re-publish and update this record with current drafts and settings?`;
+    }
 
     if (!confirm(actionPrompt)) return;
 
@@ -2641,21 +2657,24 @@ const runPublishAction = async () => {
             examKey: publishExamKey,
             examLabel: title,
             publishType: isNow ? 'now' : 'scheduled',
+            status: isNow ? 'Published' : 'Scheduled',
             publishAt,
             blockedClasses: blocked,
             createdAt: existingIdx >= 0 && history[existingIdx].createdAt ? history[existingIdx].createdAt : Date.now(),
             updatedAt: Date.now()
         };
 
-        if (existingIdx >= 0) {
-            history[existingIdx] = newRecord;
+        // Filter out any other duplicate history records of this same academic year and examKey
+        history = history.filter((r) => !(r.id !== recordId && r.academicYear === publishAcademicYear && r.examKey === publishExamKey));
+
+        const targetIndex = history.findIndex((r) => r.id === recordId);
+        if (targetIndex >= 0) {
+            history[targetIndex] = newRecord;
         } else {
             history.unshift(newRecord);
         }
 
-        // Deduplicate any duplicate history items of this same academic year and exam
-        history = history.filter((r, idx) => idx === existingIdx || !(r.id !== recordId && r.academicYear === publishAcademicYear && r.examKey === publishExamKey));
-
+        let publishedCount = 0;
         if (isNow) {
             const draftsToPublish = examResultsCache.filter((row) => {
                 if (row.published === true) return false;
@@ -2664,6 +2683,7 @@ const runPublishAction = async () => {
                 const isBlocked = blocked.includes(row.classLabel);
                 return matchesYear && matchesExam && !isBlocked;
             });
+            publishedCount = draftsToPublish.length;
             if (draftsToPublish.length > 0) {
                 for (let i = 0; i < draftsToPublish.length; i += 400) {
                     const chunk = draftsToPublish.slice(i, i + 400);
@@ -2703,7 +2723,7 @@ const runPublishAction = async () => {
         renderPublishedHistoryTable();
         renderPublishedDraftTables();
         updateDashboard();
-        alert(isNow ? 'Results Published Successfully!' : 'Auto publish schedule saved successfully!');
+        alert(isNow ? (publishedCount > 0 ? `Results Published Successfully! (${publishedCount} row(s) published)` : 'Results Published! (All matching rows are now live)') : 'Auto publish schedule saved successfully!');
     });
 };
 
@@ -2739,6 +2759,12 @@ document.getElementById('clear-all-blocked-btn')?.addEventListener('click', () =
 
 // Published History Table Event Delegation
 document.getElementById('published-history-table-body')?.addEventListener('click', (e) => {
+    const unpublishBtn = e.target.closest('.unpublish-record-btn');
+    if (unpublishBtn) {
+        const id = unpublishBtn.dataset.id;
+        if (id) unpublishExamResults(id);
+        return;
+    }
     const editBtn = e.target.closest('.edit-publish-record-btn');
     if (editBtn) {
         const id = editBtn.dataset.id;
