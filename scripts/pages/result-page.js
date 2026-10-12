@@ -1488,17 +1488,19 @@ const loadMarksTable = () => {
     }
 
     document.getElementById('entry-table-title').textContent = `Class: ${className}`;
-    document.getElementById('entry-table-subtitle').textContent = `Exam: ${currentExamContext?.label || currentExamSchema.name} • ${entryStudents.length} Students`;
+    document.getElementById('entry-table-subtitle').textContent = `Exam: ${currentExamContext?.label || currentExamSchema.name}`;
+    const studentCountBadge = document.getElementById('entry-student-count-badge');
+    if (studentCountBadge) studentCountBadge.textContent = `${entryStudents.length} Students`;
 
     // Build Headers
     let headHtml = `<tr>
-        <th class="p-3 text-center w-12">#</th>
-        <th class="p-3 text-left min-w-[90px]">Adm No</th>
-        <th class="p-3 text-left min-w-[160px]">Student Name</th>`;
+        <th class="p-3 text-center w-12 bg-slate-100 text-slate-600 font-bold text-xs sticky top-0 border-b border-slate-200">#</th>
+        <th class="p-3 text-left min-w-[95px] bg-slate-100 text-slate-600 font-bold text-xs sticky top-0 border-b border-slate-200">Adm No</th>
+        <th class="p-3 text-left min-w-[170px] bg-slate-100 text-slate-600 font-bold text-xs sticky top-0 border-b border-slate-200">Student Name</th>`;
     getSchemaSubjectRows(currentExamSchema, currentExamContext?.key || '').forEach(sub => {
-        headHtml += `<th class="p-3 text-center min-w-[90px]">${escapeHtml(sub.name)}<div class="text-[10px] text-slate-400 font-normal">Max: ${sub.maxMarks} | Pass: ${sub.passMarks}</div></th>`;
+        headHtml += `<th class="p-3 text-center min-w-[95px] bg-slate-100 text-slate-700 font-bold text-xs sticky top-0 border-b border-slate-200">${escapeHtml(sub.name)}<div class="text-[10px] text-slate-400 font-normal">Max: ${sub.maxMarks} | Pass: ${sub.passMarks}</div></th>`;
     });
-    headHtml += `<th class="p-3 text-center min-w-[110px]">Total Att.</th><th class="p-3 text-center min-w-[110px]">Present Att.</th></tr>`;
+    headHtml += `<th class="p-3 text-center min-w-[110px] bg-slate-100 text-slate-600 font-bold text-xs sticky top-0 border-b border-slate-200">Total Att.</th><th class="p-3 text-center min-w-[110px] bg-slate-100 text-slate-600 font-bold text-xs sticky top-0 border-b border-slate-200">Present Att.</th></tr>`;
     document.getElementById('marks-table-head').innerHTML = headHtml;
 
     // Build Rows
