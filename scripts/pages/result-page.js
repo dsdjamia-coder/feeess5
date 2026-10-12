@@ -232,12 +232,16 @@ const withBusyButton = async (buttonId, labelBusy, runner) => {
 };
 const getNextClassLabel = (classLabel = '') => {
     const progressionMap = resultCenterSettings.classProgressionMap || {};
-    if (progressionMap[classLabel]) return String(progressionMap[classLabel]).trim();
+    if (progressionMap[classLabel] !== undefined && progressionMap[classLabel] !== null && String(progressionMap[classLabel]).trim() !== '') {
+        return String(progressionMap[classLabel]).trim();
+    }
     const clean = String(classLabel || '').trim();
+    if (clean.toLowerCase() === 'alumni') return '';
     const match = clean.match(/^(\d+)(\s*[A-Z])?$/i);
-    if (!match) return '';
+    if (!match) return 'Alumni';
     const num = Number(match[1]);
-    if (!Number.isFinite(num) || num <= 0 || num >= 12) return '';
+    if (!Number.isFinite(num) || num <= 0) return 'Alumni';
+    if (num >= 10) return 'Alumni';
     return `${num + 1}${match[2] || ''}`.trim();
 };
 const detectAnnualResultRow = (row = {}) => {
@@ -731,12 +735,47 @@ const renderPromotionMappingUI = () => {
     const container = document.getElementById('promotion-map-list');
     if (!container) return;
     const map = resultCenterSettings.classProgressionMap || {};
-    container.innerHTML = classes.map((cls, idx) => {
-        const fallback = classes[idx + 1] || '';
-        const selected = map[cls] || fallback;
-        const options = [`<option value="">-- End --</option>`, ...classes.map((option) => `<option value="${escapeHtml(option)}" ${selected === option ? 'selected' : ''}>${escapeHtml(option)}</option>`)].join('');
-        return `<div class="grid grid-cols-2 gap-2 items-center"><div class="text-sm font-semibold">${escapeHtml(cls)}</div><select class="promotion-map-input p-2 border rounded" data-class="${escapeHtml(cls)}">${options}</select></div>`;
+    
+    // Filter out 'Alumni' from promotable sources if present in classes
+    const promotableClasses = classes.filter((c) => String(c).trim().toLowerCase() !== 'alumni');
+    
+    // Target choices: other classes + Alumni
+    const targetChoices = [...classes.filter((c) => String(c).trim().toLowerCase() !== 'alumni')];
+    if (!targetChoices.includes('Alumni')) targetChoices.push('Alumni');
+
+    if (!promotableClasses.length) {
+        container.innerHTML = `<div class="col-span-full text-center py-4 text-xs text-slate-400 italic">No classes available for promotion mapping.</div>`;
+        return;
+    }
+
+    container.innerHTML = promotableClasses.map((cls, idx) => {
+        const fallback = promotableClasses[idx + 1] || 'Alumni';
+        const selected = (map[cls] !== undefined && map[cls] !== '') ? map[cls] : fallback;
+        
+        const options = [
+            `<option value="Alumni" ${selected === 'Alumni' ? 'selected' : ''}>🎓 Alumni (Pass Out)</option>`,
+            ...targetChoices.filter((opt) => opt !== 'Alumni').map((option) => `<option value="${escapeHtml(option)}" ${selected === option ? 'selected' : ''}>Class ${escapeHtml(option)}</option>`),
+            `<option value="" ${selected === '' ? 'selected' : ''}>-- No Promotion (Remain / Discontinue) --</option>`
+        ].join('');
+
+        return `
+            <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex flex-col justify-between gap-2 hover:border-indigo-300 transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <i class="fas fa-chalkboard text-indigo-500 text-[11px]"></i> Current: <strong class="text-indigo-900">${escapeHtml(cls)}</strong>
+                    </span>
+                    <i class="fas fa-arrow-right text-[10px] text-slate-400"></i>
+                </div>
+                <div>
+                    <label class="block text-[10px] font-semibold text-slate-500 mb-1">Promote To Next Class:</label>
+                    <select class="promotion-map-input w-full p-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50 text-slate-800 focus:bg-white focus:border-indigo-400 outline-none transition" data-class="${escapeHtml(cls)}">
+                        ${options}
+                    </select>
+                </div>
+            </div>
+        `;
     }).join('');
+
     const yearSelect = document.getElementById('promotion-target-year');
     if (yearSelect) {
         const normalizeYear = (entry) => {
@@ -2513,7 +2552,9 @@ document.getElementById('preview-promotion-btn')?.addEventListener('click', () =
     const container = document.getElementById('promotion-preview-list');
     if (!container) return;
     const annualRows = examResultsCache.filter((row) => row.published === true && detectAnnualResultRow(row));
-    const summaryMap = new Map(classes.map((cls) => [cls, { pass: 0, fail: 0, total: 0, boys: 0, girls: 0, nextClass: getNextClassLabel(cls) || '-' }]));
+    const promotableClasses = classes.filter((cls) => String(cls).trim().toLowerCase() !== 'alumni');
+    const summaryMap = new Map(promotableClasses.map((cls) => [cls, { pass: 0, fail: 0, total: 0, boys: 0, girls: 0, nextClass: getNextClassLabel(cls) || '-' }]));
+    
     annualRows.forEach((row) => {
         const student = students.find((entry) => entry.id === row.studentId);
         const fromClass = student?.class || row.classLabel || '';
@@ -2527,19 +2568,50 @@ document.getElementById('preview-promotion-btn')?.addEventListener('click', () =
         if (passed) item.pass += 1;
         else item.fail += 1;
     });
-    container.innerHTML = Array.from(summaryMap.entries()).map(([cls, stat]) => `
-        <div class="border rounded-lg p-3 bg-white">
-            <div class="font-bold mb-2">${escapeHtml(cls)}</div>
-            <table class="w-full text-xs border">
-                <tr><td class="border p-1">Total Students</td><td class="border p-1 font-bold">${stat.total}</td></tr>
-                <tr><td class="border p-1">Boys</td><td class="border p-1 font-bold">${stat.boys}</td></tr>
-                <tr><td class="border p-1">Girls</td><td class="border p-1 font-bold">${stat.girls}</td></tr>
-                <tr><td class="border p-1">Pass</td><td class="border p-1 font-bold text-emerald-700">${stat.pass}</td></tr>
-                <tr><td class="border p-1">Fail</td><td class="border p-1 font-bold text-red-700">${stat.fail}</td></tr>
-                <tr><td class="border p-1">Next Class</td><td class="border p-1 font-bold">${escapeHtml(stat.nextClass)}</td></tr>
-            </table>
+
+    if (summaryMap.size === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 italic">No classes available for promotion preview.</p>`;
+        return;
+    }
+
+    container.innerHTML = `
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            ${Array.from(summaryMap.entries()).map(([cls, stat]) => {
+                const isAlumni = String(stat.nextClass).trim().toLowerCase() === 'alumni';
+                return `
+                <div class="border border-slate-200 rounded-xl p-3 bg-white shadow-xs hover:border-indigo-300 transition">
+                    <div class="flex items-center justify-between border-b pb-2 mb-2">
+                        <span class="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                            <i class="fas fa-layer-group text-indigo-500"></i> Class ${escapeHtml(cls)}
+                        </span>
+                        ${isAlumni 
+                            ? '<span class="text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full">🎓 To Alumni</span>' 
+                            : `<span class="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full">To ${escapeHtml(stat.nextClass)}</span>`
+                        }
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center text-xs my-2">
+                        <div class="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                            <span class="text-[10px] text-slate-400 block font-medium">Total</span>
+                            <strong class="text-slate-800 font-extrabold">${stat.total}</strong>
+                        </div>
+                        <div class="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100">
+                            <span class="text-[10px] text-emerald-600 block font-medium">Pass</span>
+                            <strong class="text-emerald-700 font-extrabold">${stat.pass}</strong>
+                        </div>
+                        <div class="bg-red-50 p-1.5 rounded-lg border border-red-100">
+                            <span class="text-[10px] text-red-500 block font-medium">Fail</span>
+                            <strong class="text-red-700 font-extrabold">${stat.fail}</strong>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+                        <span>Boys: <strong>${stat.boys}</strong> • Girls: <strong>${stat.girls}</strong></span>
+                        <span class="text-slate-400">${stat.total ? Math.round((stat.pass / stat.total) * 100) : 0}% pass</span>
+                    </div>
+                </div>
+                `;
+            }).join('')}
         </div>
-    `).join('');
+    `;
 });
 document.getElementById('copy-prev-year-schema-btn')?.addEventListener('click', async () => {
     if (roleScope !== 'admin') return;
@@ -3381,8 +3453,7 @@ const activateSettingsSubpanel = (subtabId) => {
         'subpanel-subjects': 'Subjects & Exams',
         'subpanel-grades': 'Grade Rules',
         'subpanel-promotion': 'Class Promotion',
-        'subpanel-snapshot': 'Snapshot Export',
-        'subpanel-visibility': 'Student Visibility'
+        'subpanel-snapshot': 'Snapshot Export'
     };
     const badge = document.getElementById('current-settings-subtab-badge');
     if (badge) badge.textContent = subtabNames[subtabId] || 'Publish Controls';

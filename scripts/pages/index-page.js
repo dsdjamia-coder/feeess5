@@ -733,8 +733,17 @@ import { BASE_PATH, applyInstitutionBranding, escapeHtml, hardenExternalLinks, n
 
                     onSnapshot(collection(db, `${BASE_PATH}/students`), snap => {
                         allStudents = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                        const classes = [...new Set(allStudents.map(s => s.class))].sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
-                        document.getElementById('login-class').innerHTML = '<option value="">Select Class</option>' + classes.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                        const distinctClasses = [...new Set(allStudents.map(s => s.class).filter(Boolean))];
+                        const regularClasses = distinctClasses
+                            .filter(c => String(c).trim().toLowerCase() !== 'alumni')
+                            .sort((a,b) => a.localeCompare(b, undefined, {numeric: true}));
+                        const hasAlumniStudents = distinctClasses.some(c => String(c).trim().toLowerCase() === 'alumni');
+                        
+                        let classOptions = regularClasses.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                        if (hasAlumniStudents || distinctClasses.length > 0) {
+                            classOptions += `<option value="Alumni">🎓 Alumni</option>`;
+                        }
+                        document.getElementById('login-class').innerHTML = '<option value="">Select Class</option>' + classOptions;
                         
                         document.getElementById('stat-total').textContent = allStudents.length;
                         document.getElementById('stat-male').textContent = allStudents.filter(s => s.gender === 'Male').length;
