@@ -434,7 +434,7 @@ const applyRoleTabVisibility = () => {
 
         const activeTab = document.querySelector('.tab-link.active');
         const activeTarget = activeTab?.dataset?.target || '';
-        const blockedTargets = new Set(['settings-page', 'published-page']);
+        const blockedTargets = new Set(['settings-page', 'published-page', 'report-cards-page']);
         if (blockedTargets.has(activeTarget)) {
             const dashboardLink = document.querySelector('.tab-link[data-target="dashboard-page"]');
             dashboardLink?.click();
@@ -2437,6 +2437,256 @@ document.getElementById('generate-class-report-btn').addEventListener('click', (
 
     docPdf.save(`Results_${reportYear}_${className}_${examContext.label.replace(/\s+/g, '_')}_${reportOrder}.pdf`);
 });
+
+document.getElementById('generate-individual-cards-btn')?.addEventListener('click', () => {
+    const examId = document.getElementById('report-exam-select').value;
+    const className = document.getElementById('report-class-select').value;
+    const reportYear = document.getElementById('report-academic-year')?.value?.trim() || currentAcademicYear || '';
+    const reportOrder = document.getElementById('report-order-select')?.value || 'rank';
+    
+    if(!reportYear || !className || !examId) return alert('Select Academic Year, Class and Exam.');
+    
+    const examContext = getExamContext(examId, className, reportYear);
+    const exam = examContext?.schema;
+    const classStudents = students.filter(s => s.class === className && (!reportYear || s.academicYear === reportYear || !s.academicYear));
+    
+    if(!examContext || !exam || classStudents.length === 0) return alert('Invalid data or no students.');
+
+    const reportSubjects = getSchemaSubjectRows(exam, examContext?.key || '');
+    if (!reportSubjects.length) return alert('No subjects configured for this exam.');
+
+    const resultRows = classStudents.map((student) => {
+        const resultRecord = examResultsCache.find(r => resultMatchesExam(r, examId) && r.studentId === student.id && (!reportYear || r.academicYear === reportYear || !r.academicYear) && r.published === true);
+        const marks = resultRecord ? (resultRecord.marks || {}) : {};
+        let total = 0;
+        let maximum = 0;
+        let isFail = !resultRecord;
+        const subjectValues = reportSubjects.map((sub) => {
+            maximum += Number(sub.maxMarks || 0);
+            const m = getResultMark(marks, sub);
+            const upper = String(m || '').trim().toUpperCase();
+            const num = Number(m);
+            if (upper === 'P') return { sub, val: 'P', num: 0, pass: true };
+            if (Number.isFinite(num)) {
+                total += num;
+                const passed = num >= Number(sub.passMarks || 0);
+                if (!passed) isFail = true;
+                return { sub, val: num, num, pass: passed };
+            }
+            isFail = true;
+            return { sub, val: m || '-', num: 0, pass: false };
+        });
+        const passStatus = isFail ? 'FAIL' : 'PASS';
+        const storedTotal = resultRecord?.totals?.obtained;
+        const storedMax = resultRecord?.totals?.maximum;
+        const finalTotal = Number.isFinite(Number(storedTotal)) ? Number(storedTotal) : total;
+        const finalMax = Number.isFinite(Number(storedMax)) && Number(storedMax) > 0 ? Number(storedMax) : maximum;
+        return {
+            student,
+            resultRecord,
+            subjectValues,
+            total: finalTotal,
+            maximum: finalMax,
+            passStatus,
+            grade: getConfiguredGrade(finalTotal, finalMax),
+            attendance: getAttendanceLabel(resultRecord)
+        };
+    });
+
+    const rankable = [...resultRows].sort((a, b) => b.total - a.total || String(a.student.name || '').localeCompare(String(b.student.name || '')));
+    let lastScore = null;
+    let lastRank = 0;
+    rankable.forEach((row, index) => {
+        if (lastScore === null || row.total !== lastScore) lastRank = index + 1;
+        row.rank = lastRank;
+        lastScore = row.total;
+    });
+    const orderedRows = sortReportRows(resultRows, reportOrder);
+
+    const { jsPDF } = window.jspdf;
+    const docPdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = docPdf.internal.pageSize.getWidth();
+    const pageHeight = docPdf.internal.pageSize.getHeight();
+    const instName = institutionConfig.appName || 'Institution Name';
+    const instPlace = institutionConfig.place || '';
+    const instReg = institutionConfig.regNo || '';
+
+    orderedRows.forEach((row, idx) => {
+        if (idx > 0) docPdf.addPage();
+
+        docPdf.setDrawColor(79, 70, 229);
+        docPdf.setLineWidth(0.8);
+        docPdf.rect(8, 8, pageWidth - 16, pageHeight - 16);
+        docPdf.setDrawColor(224, 231, 255);
+        docPdf.setLineWidth(0.3);
+        docPdf.rect(10, 10, pageWidth - 20, pageHeight - 20);
+
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setFontSize(16);
+        docPdf.setTextColor(30, 27, 75);
+        docPdf.text(instName, pageWidth / 2, 20, { align: 'center' });
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setFontSize(9);
+        docPdf.setTextColor(100);
+        const subTitle = [instPlace, instReg ? `Reg No: ${instReg}` : ''].filter(Boolean).join(' | ');
+        if (subTitle) docPdf.text(subTitle, pageWidth / 2, 26, { align: 'center' });
+
+        docPdf.setFillColor(238, 242, 255);
+        docPdf.roundedRect(pageWidth / 2 - 35, 30, 70, 7, 2, 2, 'F');
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setFontSize(10);
+        docPdf.setTextColor(67, 56, 202);
+        docPdf.text('STUDENT REPORT CARD', pageWidth / 2, 35, { align: 'center' });
+
+        docPdf.setFillColor(248, 250, 252);
+        docPdf.setDrawColor(226, 232, 240);
+        docPdf.roundedRect(14, 41, pageWidth - 28, 28, 2, 2, 'FD');
+
+        const admNo = row.student.adm || row.student.admissionNo || row.student.uid || '-';
+        const stName = row.student.name || '-';
+
+        docPdf.setFontSize(9);
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Student Name:', 18, 48);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(stName, 44, 48);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Admission No:', 18, 56);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(admNo, 44, 56);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Class:', 18, 64);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(className, 44, 64);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Academic Year:', pageWidth / 2 + 10, 48);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(reportYear, pageWidth / 2 + 37, 48);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Examination:', pageWidth / 2 + 10, 56);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(examContext.label, pageWidth / 2 + 37, 56);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Class Rank:', pageWidth / 2 + 10, 64);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(67, 56, 202);
+        docPdf.text(String(row.rank || '-'), pageWidth / 2 + 37, 64);
+
+        const subHeaders = ['#', 'Subject', 'Max Marks', 'Pass Marks', 'Obtained Marks', 'Status'];
+        const subBody = row.subjectValues.map((item, sIdx) => [
+            sIdx + 1,
+            item.sub.name,
+            item.sub.maxMarks,
+            item.sub.passMarks,
+            item.val,
+            item.val === 'P' ? 'PASS' : (item.val === 'A' || item.val === 'AB') ? 'ABSENT' : item.pass ? 'PASS' : 'FAIL'
+        ]);
+
+        docPdf.autoTable({
+            startY: 74,
+            margin: { left: 14, right: 14 },
+            head: [subHeaders],
+            body: subBody,
+            styles: { fontSize: 8.5, cellPadding: 2.2, valign: 'middle' },
+            headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
+            columnStyles: {
+                0: { cellWidth: 10, halign: 'center' },
+                1: { cellWidth: 55 },
+                2: { cellWidth: 26, halign: 'center' },
+                3: { cellWidth: 26, halign: 'center' },
+                4: { cellWidth: 32, halign: 'center', fontStyle: 'bold' },
+                5: { halign: 'center' }
+            },
+            didParseCell: (data) => {
+                if (data.section === 'body' && data.column.index === 5) {
+                    if (data.cell.raw === 'FAIL') {
+                        data.cell.styles.textColor = [220, 38, 38];
+                        data.cell.styles.fontStyle = 'bold';
+                    } else if (data.cell.raw === 'PASS') {
+                        data.cell.styles.textColor = [16, 149, 101];
+                        data.cell.styles.fontStyle = 'bold';
+                    } else if (data.cell.raw === 'ABSENT') {
+                        data.cell.styles.textColor = [217, 119, 6];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            }
+        });
+
+        const finalY = docPdf.lastAutoTable.finalY + 6;
+
+        docPdf.setFillColor(248, 250, 252);
+        docPdf.setDrawColor(226, 232, 240);
+        docPdf.roundedRect(14, finalY, pageWidth - 28, 24, 2, 2, 'FD');
+
+        const pct = row.maximum > 0 ? Math.round((row.total / row.maximum) * 100) : 0;
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setFontSize(8.5);
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Total Marks:', 18, finalY + 8);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(`${row.total} / ${row.maximum}`, 42, finalY + 8);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Percentage:', 18, finalY + 16);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(`${pct}%`, 42, finalY + 16);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Attendance:', pageWidth / 2 + 10, finalY + 8);
+        docPdf.setFont('helvetica', 'bold');
+        docPdf.setTextColor(15, 23, 42);
+        docPdf.text(row.attendance || '-', pageWidth / 2 + 35, finalY + 8);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setTextColor(71, 85, 105);
+        docPdf.text('Final Result:', pageWidth / 2 + 10, finalY + 16);
+        docPdf.setFont('helvetica', 'bold');
+        if (row.passStatus === 'PASS') {
+            docPdf.setTextColor(16, 149, 101);
+            docPdf.text(`PASSED (Grade: ${row.grade})`, pageWidth / 2 + 35, finalY + 16);
+        } else {
+            docPdf.setTextColor(220, 38, 38);
+            docPdf.text('FAILED', pageWidth / 2 + 35, finalY + 16);
+        }
+
+        const signY = pageHeight - 30;
+        docPdf.setDrawColor(203, 213, 225);
+        docPdf.setLineWidth(0.4);
+        docPdf.line(20, signY, 65, signY);
+        docPdf.line(pageWidth - 65, signY, pageWidth - 20, signY);
+
+        docPdf.setFont('helvetica', 'normal');
+        docPdf.setFontSize(8);
+        docPdf.setTextColor(100);
+        docPdf.text('Class Teacher', 42.5, signY + 5, { align: 'center' });
+        docPdf.text('Head of Institution / Principal', pageWidth - 42.5, signY + 5, { align: 'center' });
+    });
+
+    docPdf.save(`Report_Cards_${reportYear}_${className}_${examContext.label.replace(/\s+/g, '_')}.pdf`);
+});
+
 
 ['report-academic-year', 'report-class-select', 'report-exam-select', 'report-order-select'].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', () => {
