@@ -2120,6 +2120,18 @@ const renderExamConfigRowsForSelectedClass = () => {
 const setSetupMode = (mode = 'subjects') => {
     document.getElementById('subject-setup-panel')?.classList.toggle('hidden', mode !== 'subjects');
     document.getElementById('exam-setup-panel')?.classList.toggle('hidden', mode !== 'exams');
+
+    const tabSubjects = document.getElementById('mode-tab-subjects');
+    const tabExams = document.getElementById('mode-tab-exams');
+    if (tabSubjects && tabExams) {
+        if (mode === 'subjects') {
+            tabSubjects.className = 'setup-mode-tab flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition select-none bg-white text-indigo-700 shadow-xs';
+            tabExams.className = 'setup-mode-tab flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition select-none text-slate-600 hover:text-slate-900';
+        } else {
+            tabExams.className = 'setup-mode-tab flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition select-none bg-white text-indigo-700 shadow-xs';
+            tabSubjects.className = 'setup-mode-tab flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold cursor-pointer transition select-none text-slate-600 hover:text-slate-900';
+        }
+    }
 };
 const renderSubjectRowsEditor = (rows = []) => {
     const body = document.getElementById('subject-rows-body');
