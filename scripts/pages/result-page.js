@@ -597,23 +597,130 @@ const initializeDataListeners = () => {
         const publishExamSelect = document.getElementById('publish-exam-select');
         if (publishExamSelect && resultCenterSettings.publishExamKey) publishExamSelect.value = resultCenterSettings.publishExamKey;
         updatePublishLiveStatus();
-        const gradeScaleSelect = document.getElementById('grade-scale-select');
-        if (gradeScaleSelect) gradeScaleSelect.value = String(resultCenterSettings.gradeScaleTotal || 100);
         renderGradeRules();
         renderBlockedClasses();
         renderPromotionMappingUI();
         renderResultVisibilitySettings();
     });
 };
-const renderGradeRules = () => {
+
+const DEFAULT_GRADE_SCALES = {
+    100: [
+        { grade: 'A+', min: 90, max: 100 },
+        { grade: 'A', min: 80, max: 89.99 },
+        { grade: 'B', min: 60, max: 79.99 },
+        { grade: 'C', min: 35, max: 59.99 },
+        { grade: 'F', min: 0, max: 34.99 }
+    ],
+    50: [
+        { grade: 'A+', min: 45, max: 50 },
+        { grade: 'A', min: 40, max: 44.99 },
+        { grade: 'B', min: 30, max: 39.99 },
+        { grade: 'C', min: 18, max: 29.99 },
+        { grade: 'F', min: 0, max: 17.99 }
+    ]
+};
+
+const getEffectiveGradeScales = () => {
+    const customScales = resultCenterSettings.gradeScales || {};
+    const scales = {
+        100: JSON.parse(JSON.stringify(DEFAULT_GRADE_SCALES[100])),
+        50: JSON.parse(JSON.stringify(DEFAULT_GRADE_SCALES[50]))
+    };
+    Object.keys(customScales).forEach((key) => {
+        if (Array.isArray(customScales[key]) && customScales[key].length) {
+            scales[Number(key)] = customScales[key];
+        }
+    });
+    if (resultCenterSettings.gradeRules && Array.isArray(resultCenterSettings.gradeRules) && resultCenterSettings.gradeRules.length) {
+        const legacyScale = Number(resultCenterSettings.gradeScaleTotal || 100);
+        if (!customScales[legacyScale]) {
+            scales[legacyScale] = resultCenterSettings.gradeRules;
+        }
+    }
+    return scales;
+};
+
+const renderGradeRules = (selectedTotal) => {
+    const totalInput = document.getElementById('grade-scale-total-input');
+    const total = selectedTotal !== undefined 
+        ? Number(selectedTotal) 
+        : (totalInput ? Number(totalInput.value) || 100 : 100);
+    if (totalInput) totalInput.value = total;
+
+    const scales = getEffectiveGradeScales();
+    let currentRules = scales[total];
+    if (!currentRules || !currentRules.length) {
+        // Generate sensible proportional scale from 100 scale
+        const base100 = scales[100] || DEFAULT_GRADE_SCALES[100];
+        currentRules = base100.map((r) => ({
+            grade: r.grade,
+            min: Math.round((Number(r.min || 0) / 100) * total * 10) / 10,
+            max: Math.round((Number(r.max || 0) / 100) * total * 10) / 10
+        }));
+    }
+
     const container = document.getElementById('grade-rules-rows');
+    if (container) {
+        container.innerHTML = currentRules.map((rule, index) => `
+            <div class="grid grid-cols-12 gap-2 items-center grade-rule-row">
+                <div class="col-span-4 sm:col-span-3">
+                    <input type="text" class="grade-grade w-full p-2 border rounded-lg text-sm font-bold bg-white text-slate-800" data-index="${index}" value="${escapeHtml(rule.grade || '')}" placeholder="e.g. A+">
+                </div>
+                <div class="col-span-3 sm:col-span-4">
+                    <input type="number" step="0.01" class="grade-min w-full p-2 border rounded-lg text-sm bg-white text-slate-800" data-index="${index}" value="${rule.min ?? 0}" placeholder="Min Mark">
+                </div>
+                <div class="col-span-3 sm:col-span-4">
+                    <input type="number" step="0.01" class="grade-max w-full p-2 border rounded-lg text-sm bg-white text-slate-800" data-index="${index}" value="${rule.max ?? 0}" placeholder="Max Mark">
+                </div>
+                <div class="col-span-2 sm:col-span-1 text-center">
+                    <button type="button" class="remove-grade-rule-row text-red-500 hover:text-red-700 p-1.5 rounded transition" title="Delete rule row">
+                        <i class="fas fa-trash-alt text-xs"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    renderSavedGradeScales();
+};
+
+const renderSavedGradeScales = () => {
+    const container = document.getElementById('saved-grade-scales-container');
     if (!container) return;
-    const scale = Number(document.getElementById('grade-scale-select')?.value || resultCenterSettings.gradeScaleTotal || 100) === 50 ? 50 : 100;
-    const defaultRules = scale === 50
-        ? [{ grade: 'A+', min: 45, max: 50 }, { grade: 'A', min: 40, max: 44.99 }, { grade: 'B', min: 30, max: 39.99 }, { grade: 'C', min: 18, max: 29.99 }, { grade: 'F', min: 0, max: 17.99 }]
-        : [{ grade: 'A+', min: 90, max: 100 }, { grade: 'A', min: 80, max: 89.99 }, { grade: 'B', min: 60, max: 79.99 }, { grade: 'C', min: 35, max: 59.99 }, { grade: 'F', min: 0, max: 34.99 }];
-    const rules = Array.isArray(resultCenterSettings.gradeRules) && resultCenterSettings.gradeRules.length ? resultCenterSettings.gradeRules : defaultRules;
-    container.innerHTML = rules.map((rule, index) => `<div class="grid grid-cols-3 gap-2"><input class="grade-grade p-2 border rounded" data-index="${index}" value="${rule.grade || ''}"><input type="number" class="grade-min p-2 border rounded" data-index="${index}" value="${rule.min ?? 0}"><input type="number" class="grade-max p-2 border rounded" data-index="${index}" value="${rule.max ?? 0}"></div>`).join('');
+    const scales = getEffectiveGradeScales();
+    const sortedKeys = Object.keys(scales).map(Number).sort((a, b) => b - a);
+
+    container.innerHTML = sortedKeys.map((key) => {
+        const rules = scales[key] || [];
+        const isDefault = key === 100 || key === 50;
+        const badgesHtml = rules.map((r) => `
+            <span class="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-1 rounded-md text-xs font-medium">
+                <strong class="font-extrabold text-indigo-700">${escapeHtml(r.grade)}</strong>: ${r.min} - ${r.max}
+            </span>
+        `).join('');
+
+        return `
+        <div class="bg-white border border-slate-200 rounded-xl p-4 shadow-sm hover:border-indigo-300 transition flex flex-col justify-between">
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-base font-extrabold text-slate-800">${key} Total Marks</span>
+                        ${isDefault ? '<span class="text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold px-2 py-0.5 rounded-full">System Default</span>' : '<span class="text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-2 py-0.5 rounded-full">Custom Scale</span>'}
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-1.5 my-3">
+                    ${badgesHtml || '<span class="text-xs text-slate-400 italic">No grade rules configured</span>'}
+                </div>
+            </div>
+            <div class="pt-3 border-t flex justify-end items-center">
+                <button type="button" class="edit-saved-scale-btn bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold py-1.5 px-3 rounded-lg transition flex items-center gap-1.5" data-total="${key}">
+                    <i class="fas fa-edit"></i> Edit Scale
+                </button>
+            </div>
+        </div>
+        `;
+    }).join('');
 };
 const renderBlockedClasses = () => {
     const container = document.getElementById('blocked-classes-list');
@@ -1201,41 +1308,98 @@ const renderExamSetup = () => {
         .filter((s) => s.academicYear === currentAcademicYear || !s.academicYear)
         .filter((s) => !classFilter || s.classLabel === classFilter);
     
-    if(filtered.length === 0) {
-        cont.innerHTML = `<div class="col-span-2 text-center py-8 text-gray-500 bg-gray-50 rounded-xl border border-dashed">No saved subjects or exams for the selected class/year.</div>`;
+    if (filtered.length === 0) {
+        cont.innerHTML = `
+            <div class="text-center py-10 px-4 text-slate-500 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                <i class="fas fa-folder-open text-3xl text-slate-300 mb-2 block"></i>
+                <div class="font-bold text-slate-700">No saved subjects or exams found</div>
+                <p class="text-xs text-slate-400 mt-1">Select a class above to configure subjects and custom exams for academic year ${escapeHtml(currentAcademicYear || 'current')}.</p>
+            </div>
+        `;
         return;
     }
 
-    cont.innerHTML = filtered.map((schema) => {
+    const rowsHtml = filtered.map((schema) => {
         const customExams = Object.entries(getCustomExamConfigs(schema.examConfigs || {}));
-        const subjectsHtml = getSchemaSubjectRows(schema).map((sub) => `<div class="text-sm text-gray-700">${escapeHtml(sub.name)} <span class="text-xs text-gray-500">(${sub.maxMarks}/${sub.passMarks})</span></div>`).join('') || '<div class="text-sm text-gray-500 italic">No subjects saved.</div>';
-        const defaultExamsHtml = DEFAULT_EXAM_DEFS.map((exam) => `<div class="text-sm text-slate-700 border-t pt-2 mt-2"><span class="font-bold">${escapeHtml(exam.label)}</span> <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">Default</span><div class="text-xs text-slate-500">Subjects: All saved subjects</div></div>`).join('');
-        const customExamsHtml = customExams.length
+        const subjectRows = getSchemaSubjectRows(schema);
+        
+        const subjectsBadgeHtml = subjectRows.length
+            ? subjectRows.map((sub) => `
+                <span class="inline-flex items-center gap-1 bg-slate-100 text-slate-800 border border-slate-200 px-2 py-0.5 rounded text-[11px] font-medium mr-1 mb-1">
+                    ${escapeHtml(sub.name)} <span class="text-slate-500 font-semibold">(${sub.maxMarks}/${sub.passMarks})</span>
+                </span>
+            `).join('')
+            : '<span class="text-xs text-slate-400 italic">No subjects configured</span>';
+
+        const defaultExamsBadges = DEFAULT_EXAM_DEFS.map((exam) => `
+            <span class="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-200 text-indigo-700 px-2 py-0.5 rounded text-[11px] font-semibold mr-1 mb-1">
+                ${escapeHtml(exam.label)} <span class="text-[9px] bg-indigo-200 text-indigo-800 px-1 rounded">Default</span>
+            </span>
+        `).join('');
+
+        const customExamsBadges = customExams.length
             ? customExams.map(([key, config]) => {
-                const examSubjects = getSchemaSubjectRows(schema, key).map((subject) => subject.name).join(', ') || 'All saved subjects';
-                return `<div class="text-sm text-slate-700 border-t pt-2 mt-2 flex items-start justify-between gap-2"><div><span class="font-bold">${escapeHtml(config?.label || key)}</span><div class="text-xs text-slate-500">Subjects: ${escapeHtml(examSubjects)}</div></div><div class="flex gap-1 shrink-0"><button class="custom-exam-edit-btn text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded" data-schema-id="${schema.id}" data-exam-key="${escapeHtml(key)}">Edit</button><button class="custom-exam-delete-btn text-xs bg-red-50 text-red-700 px-2 py-1 rounded" data-schema-id="${schema.id}" data-exam-key="${escapeHtml(key)}">Delete</button></div></div>`;
+                const examLabel = config?.label || key;
+                return `
+                <span class="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 px-2 py-0.5 rounded text-[11px] font-medium mr-1 mb-1">
+                    <span>${escapeHtml(examLabel)}</span>
+                    <button type="button" class="custom-exam-edit-btn text-blue-600 hover:text-blue-800 font-bold p-0.5" data-schema-id="${schema.id}" data-exam-key="${escapeHtml(key)}" title="Edit Custom Exam"><i class="fas fa-pen text-[9px]"></i></button>
+                    <button type="button" class="custom-exam-delete-btn text-red-600 hover:text-red-800 font-bold p-0.5" data-schema-id="${schema.id}" data-exam-key="${escapeHtml(key)}" title="Delete Custom Exam"><i class="fas fa-times text-[9px]"></i></button>
+                </span>
+                `;
             }).join('')
-            : '<div class="text-sm text-gray-500 italic border-t pt-2 mt-2">No additional exams saved for this class.</div>';
-        const examsHtml = defaultExamsHtml + customExamsHtml;
+            : '';
+
         return `
-        <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm relative group hover:border-indigo-300 transition">
-            <div class="flex justify-between items-start mb-2">
-                <h3 class="font-bold text-lg text-gray-800">${escapeHtml(schema.classLabel || '--')}</h3>
-                <div class="relative">
-                    <button class="schema-menu-toggle text-slate-600 p-2 rounded hover:bg-gray-100" data-id="${schema.id}"><i class="fas fa-ellipsis-v"></i></button>
-                    <div class="schema-menu hidden absolute right-0 mt-1 bg-white border rounded-lg shadow-lg z-10 min-w-[120px]" data-id="${schema.id}">
-                        <button class="schema-edit-btn block w-full text-left px-3 py-2 text-sm hover:bg-blue-50" data-id="${schema.id}">Edit Subjects</button>
-                        <button class="schema-delete-btn block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50" data-id="${schema.id}">Delete</button>
-                    </div>
+        <tr class="hover:bg-slate-50/70 transition border-b border-slate-100">
+            <td class="p-3 align-top font-bold text-slate-800 whitespace-nowrap">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-extrabold text-slate-800">${escapeHtml(schema.classLabel || '--')}</span>
+                    <span class="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">${subjectRows.length} Subs</span>
                 </div>
-            </div>
-            <div class="text-xs text-gray-500 mb-2">Academic Year: ${escapeHtml(schema.academicYear || '--')}</div>
-            <div class="font-bold text-xs uppercase text-slate-500 mb-1">Subjects</div>
-            <div class="space-y-1">${subjectsHtml}</div>
-            <div class="font-bold text-xs uppercase text-slate-500 mt-3">Exams</div>
-            ${examsHtml}
-        </div>`;
+                <div class="text-[11px] text-slate-400 font-normal mt-0.5">${escapeHtml(schema.academicYear || currentAcademicYear || '')}</div>
+            </td>
+            <td class="p-3 align-top">
+                <div class="flex flex-wrap">${subjectsBadgeHtml}</div>
+            </td>
+            <td class="p-3 align-top">
+                <div class="flex flex-wrap items-center">
+                    ${defaultExamsBadges}
+                    ${customExamsBadges}
+                </div>
+            </td>
+            <td class="p-3 align-top text-right whitespace-nowrap">
+                <div class="flex items-center justify-end gap-1.5">
+                    <button type="button" class="schema-edit-btn bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold py-1.5 px-2.5 rounded-lg transition flex items-center gap-1" data-id="${schema.id}" title="Edit Subjects">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button type="button" class="schema-configure-exams-btn bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-1.5 px-2 rounded-lg transition flex items-center gap-1" data-id="${schema.id}" data-class="${escapeHtml(schema.classLabel)}" title="Configure Exams">
+                        <i class="fas fa-tasks"></i> Exams
+                    </button>
+                    <button type="button" class="schema-delete-btn bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 text-xs font-bold py-1.5 px-2 rounded-lg transition" data-id="${schema.id}" title="Delete Class Schema">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+        `;
     }).join('');
+
+    cont.innerHTML = `
+        <table class="w-full text-left text-xs sm:text-sm">
+            <thead class="bg-slate-50 text-slate-700 border-b font-semibold">
+                <tr>
+                    <th class="p-3 w-36">Class</th>
+                    <th class="p-3 min-w-[220px]">Subjects (Total/Pass)</th>
+                    <th class="p-3 min-w-[220px]">Active Exams</th>
+                    <th class="p-3 text-right w-48">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+                ${rowsHtml}
+            </tbody>
+        </table>
+    `;
 };
 
 document.getElementById('create-exam-btn')?.addEventListener('click', () => {
@@ -2067,44 +2231,221 @@ document.getElementById('exam-list-container')?.addEventListener('click', async 
         if (classSelect) classSelect.value = schema.classLabel || '';
         document.querySelector('.setup-mode-radio[value="subjects"]')?.click();
         renderSubjectRowsEditor(getSchemaSubjectRows(schema));
+        document.getElementById('subject-setup-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+    }
+    const configExamsBtn = event.target.closest('.schema-configure-exams-btn');
+    if (configExamsBtn) {
+        const schema = resultSchemas.find((entry) => entry.id === configExamsBtn.dataset.id);
+        if (!schema) return;
+        document.querySelector('.setup-mode-radio[value="exams"]')?.click();
+        const classSelect = document.getElementById('exam-config-class-select');
+        if (classSelect) {
+            classSelect.value = schema.classLabel || '';
+            renderExamConfigRowsForSelectedClass();
+        }
+        document.getElementById('exam-setup-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         return;
     }
     const delBtn = event.target.closest('.schema-delete-btn');
     if (delBtn) {
-        if (!confirm('Delete this class schema?')) return;
+        const schema = resultSchemas.find((entry) => entry.id === delBtn.dataset.id);
+        const label = schema ? schema.classLabel : 'this class';
+        if (!confirm(`Are you sure you want to delete subjects and custom exam schema for ${label}?`)) return;
         await deleteDoc(doc(db, `${BASE_PATH}/resultSchemas`, delBtn.dataset.id));
     }
 });
-document.getElementById('apply-prev-year-subjects-btn')?.addEventListener('click', async () => {
-    if (roleScope !== 'admin') return;
-    const classLabel = document.getElementById('subject-class-select')?.value;
-    if (!classLabel || !currentAcademicYear) return alert('Select class and ensure academic year is active.');
-    const start = Number(String(currentAcademicYear).split('-')[0]);
-    if (!Number.isFinite(start)) return alert('Invalid academic year format.');
-    const prevYear = `${start - 1}-${start}`;
-    const prevSchema = resultSchemas.find((entry) => entry.classLabel === classLabel && entry.academicYear === prevYear);
-    if (!prevSchema) return alert(`No previous year schema found for ${classLabel} in ${prevYear}.`);
-    if (!confirm(`Apply subjects from ${prevYear} to current year (${currentAcademicYear}) for ${classLabel}?`)) return;
-    const docId = `${currentAcademicYear}_${classLabel}`.replace(/[^\w-]/g, '_');
-    await setDoc(doc(db, `${BASE_PATH}/resultSchemas`, docId), {
-        classLabel,
-        academicYear: currentAcademicYear,
-        subjects: prevSchema.subjects || [],
-        subjectRows: getSchemaSubjectRows(prevSchema),
-        examConfigs: prevSchema.examConfigs || {},
-        updatedAt: Date.now()
-    }, { merge: true });
-    alert('Previous year subjects applied.');
+
+// Carry Forward Previous Year Subjects Modal Handlers
+const closeCarryforwardModal = () => {
+    const modal = document.getElementById('carryforward-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+};
+
+document.getElementById('open-carryforward-modal-btn')?.addEventListener('click', () => {
+    if (roleScope !== 'admin') return alert('Only administrators can carry forward subject schemas.');
+    const modal = document.getElementById('carryforward-modal');
+    if (!modal) return;
+    
+    // Find previous academic year
+    const currentStartYear = Number(String(currentAcademicYear || '').split('-')[0]);
+    let prevYear = '';
+    if (Number.isFinite(currentStartYear)) {
+        prevYear = `${currentStartYear - 1}-${currentStartYear}`;
+    }
+    
+    let previousSchemas = resultSchemas.filter((entry) => entry.academicYear === prevYear);
+    if (!previousSchemas.length) {
+        const otherYears = [...new Set(resultSchemas.map((s) => s.academicYear).filter((y) => y && y !== currentAcademicYear))].sort();
+        if (otherYears.length) {
+            prevYear = otherYears[otherYears.length - 1];
+            previousSchemas = resultSchemas.filter((entry) => entry.academicYear === prevYear);
+        }
+    }
+
+    const subtitle = document.getElementById('carryforward-modal-subtitle');
+    if (subtitle) {
+        subtitle.textContent = prevYear 
+            ? `Copy subject configurations from previous year (${prevYear}) to current year (${currentAcademicYear})`
+            : `No previous academic year schemas found.`;
+    }
+
+    const listContainer = document.getElementById('carryforward-modal-classes-list');
+    const applyBtn = document.getElementById('carryforward-modal-apply-btn');
+    if (listContainer) {
+        if (!previousSchemas.length) {
+            listContainer.innerHTML = `
+                <div class="text-center py-6 text-slate-500 text-xs">
+                    <i class="fas fa-exclamation-triangle text-amber-500 text-xl mb-1.5 block"></i>
+                    No saved subject configurations found for previous year (${prevYear || 'N/A'}).
+                </div>
+            `;
+            if (applyBtn) applyBtn.disabled = true;
+        } else {
+            if (applyBtn) applyBtn.disabled = false;
+            listContainer.innerHTML = previousSchemas.map((schema) => {
+                const subRows = getSchemaSubjectRows(schema);
+                const subNames = subRows.map((s) => s.name).join(', ') || 'No subjects';
+                return `
+                <label class="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 bg-white hover:border-indigo-300 cursor-pointer transition">
+                    <input type="checkbox" class="carryforward-class-checkbox mt-0.5 rounded text-indigo-600 focus:ring-indigo-500" value="${escapeHtml(schema.id)}" checked>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-slate-800 text-xs sm:text-sm">${escapeHtml(schema.classLabel)}</span>
+                            <span class="text-[10px] bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded">${subRows.length} subjects</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 truncate mt-0.5">${escapeHtml(subNames)}</p>
+                    </div>
+                </label>
+                `;
+            }).join('');
+        }
+    }
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
 });
+
+document.getElementById('carryforward-modal-close-x')?.addEventListener('click', closeCarryforwardModal);
+document.getElementById('carryforward-modal-cancel')?.addEventListener('click', closeCarryforwardModal);
+
+document.getElementById('carryforward-select-all-btn')?.addEventListener('click', () => {
+    const checkboxes = document.querySelectorAll('.carryforward-class-checkbox');
+    const allChecked = Array.from(checkboxes).every((cb) => cb.checked);
+    checkboxes.forEach((cb) => cb.checked = !allChecked);
+});
+
+document.getElementById('carryforward-modal-apply-btn')?.addEventListener('click', async () => {
+    if (roleScope !== 'admin') return alert('Only administrators can carry forward subject schemas.');
+    const selectedIds = Array.from(document.querySelectorAll('.carryforward-class-checkbox:checked')).map((cb) => cb.value);
+    if (!selectedIds.length) return alert('Please select at least one class to carry forward.');
+
+    const selectedSchemas = resultSchemas.filter((s) => selectedIds.includes(s.id));
+    if (!selectedSchemas.length) return alert('No schemas selected.');
+
+    await withBusyButton('carryforward-modal-apply-btn', 'Applying...', async () => {
+        await Promise.all(selectedSchemas.map((schema) => {
+            const docId = `${currentAcademicYear}_${schema.classLabel}`.replace(/[^\w-]/g, '_');
+            return setDoc(doc(db, `${BASE_PATH}/resultSchemas`, docId), {
+                classLabel: schema.classLabel,
+                academicYear: currentAcademicYear,
+                subjects: schema.subjects || [],
+                subjectRows: getSchemaSubjectRows(schema),
+                examConfigs: schema.examConfigs || {},
+                updatedAt: Date.now()
+            }, { merge: true });
+        }));
+    });
+
+    closeCarryforwardModal();
+    alert(`Successfully carried forward subjects for ${selectedSchemas.length} class(es) to academic year ${currentAcademicYear}.`);
+
+    if (selectedSchemas[0]) {
+        const select = document.getElementById('subject-class-select');
+        if (select) {
+            select.value = selectedSchemas[0].classLabel;
+            renderSubjectRowsEditor(getSchemaSubjectRows(selectedSchemas[0]));
+        }
+    }
+});
+
+// Grade Rules & Multi-Scale Event Listeners
 document.getElementById('add-grade-rule-row-btn')?.addEventListener('click', () => {
-    resultCenterSettings.gradeRules = [...(resultCenterSettings.gradeRules || []), { grade: '', min: 0, max: 0 }];
-    renderGradeRules();
+    const container = document.getElementById('grade-rules-rows');
+    if (!container) return;
+    const index = document.querySelectorAll('.grade-rule-row').length;
+    container.insertAdjacentHTML('beforeend', `
+        <div class="grid grid-cols-12 gap-2 items-center grade-rule-row">
+            <div class="col-span-4 sm:col-span-3">
+                <input type="text" class="grade-grade w-full p-2 border rounded-lg text-sm font-bold bg-white text-slate-800" data-index="${index}" value="" placeholder="e.g. B+">
+            </div>
+            <div class="col-span-3 sm:col-span-4">
+                <input type="number" step="0.01" class="grade-min w-full p-2 border rounded-lg text-sm bg-white text-slate-800" data-index="${index}" value="0" placeholder="Min Mark">
+            </div>
+            <div class="col-span-3 sm:col-span-4">
+                <input type="number" step="0.01" class="grade-max w-full p-2 border rounded-lg text-sm bg-white text-slate-800" data-index="${index}" value="0" placeholder="Max Mark">
+            </div>
+            <div class="col-span-2 sm:col-span-1 text-center">
+                <button type="button" class="remove-grade-rule-row text-red-500 hover:text-red-700 p-1.5 rounded transition" title="Delete rule row">
+                    <i class="fas fa-trash-alt text-xs"></i>
+                </button>
+            </div>
+        </div>
+    `);
 });
+
+document.getElementById('grade-rules-rows')?.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest('.remove-grade-rule-row');
+    if (removeBtn) {
+        removeBtn.closest('.grade-rule-row')?.remove();
+    }
+});
+
 document.getElementById('save-grade-rules-btn')?.addEventListener('click', async () => {
-    const grades = Array.from(document.querySelectorAll('.grade-grade'));
-    const rules = grades.map((gradeInput, idx) => ({ grade: gradeInput.value.trim(), min: Number(document.querySelector(`.grade-min[data-index="${idx}"]`)?.value || 0), max: Number(document.querySelector(`.grade-max[data-index="${idx}"]`)?.value || 0) })).filter((r) => r.grade);
-    await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), { gradeRules: rules, gradeScaleTotal: Number(document.getElementById('grade-scale-select')?.value || 100) === 50 ? 50 : 100 }, { merge: true });
-    alert('Grade rules saved.');
+    if (roleScope !== 'admin') return alert('Only administrators can configure grade rules.');
+    const totalInput = document.getElementById('grade-scale-total-input');
+    const total = Number(totalInput?.value || 100);
+    if (!Number.isFinite(total) || total <= 0) return alert('Please enter a valid total mark greater than 0.');
+
+    const rowElements = Array.from(document.querySelectorAll('.grade-rule-row'));
+    const rules = rowElements.map((row) => {
+        const grade = row.querySelector('.grade-grade')?.value?.trim() || '';
+        const min = Number(row.querySelector('.grade-min')?.value || 0);
+        const max = Number(row.querySelector('.grade-max')?.value || 0);
+        return { grade, min, max };
+    }).filter((r) => r.grade);
+
+    if (!rules.length) return alert('Please add at least one grade rule before saving.');
+
+    // Update in-memory settings
+    if (!resultCenterSettings.gradeScales) resultCenterSettings.gradeScales = {};
+    resultCenterSettings.gradeScales[total] = rules;
+    resultCenterSettings.gradeRules = rules;
+    resultCenterSettings.gradeScaleTotal = total;
+
+    await withBusyButton('save-grade-rules-btn', 'Saving...', async () => {
+        await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), {
+            gradeScales: resultCenterSettings.gradeScales,
+            gradeRules: rules,
+            gradeScaleTotal: total
+        }, { merge: true });
+    });
+
+    renderGradeRules(total);
+    alert(`Grade scale for ${total} marks successfully saved.`);
+});
+
+document.getElementById('saved-grade-scales-container')?.addEventListener('click', (event) => {
+    const editBtn = event.target.closest('.edit-saved-scale-btn');
+    if (!editBtn) return;
+    const total = Number(editBtn.dataset.total);
+    renderGradeRules(total);
+    const totalInput = document.getElementById('grade-scale-total-input');
+    totalInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    totalInput?.focus();
 });
 document.getElementById('save-blocked-classes-btn')?.addEventListener('click', async () => {
     const blocked = Array.from(document.querySelectorAll('.blocked-class-checkbox:checked')).map((el) => el.value);
@@ -2245,25 +2586,32 @@ document.getElementById('schema-carryforward-list')?.addEventListener('click', a
     alert(`Copied ${selected.length} schemas from ${previousYear}.`);
 });
 
-// --- PDF Report Generation ---
 const getConfiguredGrade = (total = 0, maximum = 0) => {
     if (!maximum || Number(total || 0) === 0) return '-';
-    const scale = Number(resultCenterSettings.gradeScaleTotal || 100) === 50 ? 50 : 100;
-    const score = (Number(total || 0) / Number(maximum || 1)) * scale;
-    const rules = Array.isArray(resultCenterSettings.gradeRules) && resultCenterSettings.gradeRules.length ? resultCenterSettings.gradeRules : [];
-    const matched = rules.find((rule) => score >= Number(rule.min || 0) && score <= Number(rule.max || 0));
-    if (matched?.grade) return matched.grade;
-    if (scale === 50) {
-        if (score >= 45) return 'A+';
-        if (score >= 40) return 'A';
-        if (score >= 30) return 'B';
-        if (score >= 18) return 'C';
-        return 'FAIL';
+    const totalNum = Number(total || 0);
+    const maxNum = Number(maximum || 100);
+
+    const scales = getEffectiveGradeScales();
+    
+    // Check if there is an exact scale matching maxNum (e.g. 50 or 100 or custom)
+    const exactScale = scales[maxNum];
+    if (Array.isArray(exactScale) && exactScale.length) {
+        const matched = exactScale.find((rule) => totalNum >= Number(rule.min || 0) && totalNum <= Number(rule.max || 0));
+        if (matched?.grade) return matched.grade;
     }
-    if (score >= 90) return 'A+';
-    if (score >= 80) return 'A';
-    if (score >= 60) return 'B';
-    if (score >= 35) return 'C';
+
+    // Normalize to 100 scale
+    const percentage = (totalNum / maxNum) * 100;
+    const scale100 = scales[100] || DEFAULT_GRADE_SCALES[100];
+    if (Array.isArray(scale100) && scale100.length) {
+        const matched100 = scale100.find((rule) => percentage >= Number(rule.min || 0) && percentage <= Number(rule.max || 0));
+        if (matched100?.grade) return matched100.grade;
+    }
+
+    if (percentage >= 90) return 'A+';
+    if (percentage >= 80) return 'A';
+    if (percentage >= 60) return 'B';
+    if (percentage >= 35) return 'C';
     return 'FAIL';
 };
 const compareAdmissionNo = (a = {}, b = {}) => String(a.student.adm || a.student.admissionNo || a.student.uid || '').localeCompare(String(b.student.adm || b.student.admissionNo || b.student.uid || ''), undefined, { numeric: true, sensitivity: 'base' });
@@ -3011,9 +3359,9 @@ document.getElementById('mark-clear-btn')?.addEventListener('click', () => {
     validateMarksTable();
 });
 
-document.getElementById('grade-scale-select')?.addEventListener('change', () => {
-    resultCenterSettings.gradeRules = [];
-    renderGradeRules();
+document.getElementById('grade-scale-total-input')?.addEventListener('change', (e) => {
+    const total = Number(e.target.value || 100);
+    if (total > 0) renderGradeRules(total);
 });
 
 // Settings & Setup Sub-Panel Activator (hamburger menu & subtab buttons)
