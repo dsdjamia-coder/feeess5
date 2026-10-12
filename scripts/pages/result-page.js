@@ -872,6 +872,31 @@ const sortResultRows = (rows = [], order = 'admission') => {
     const wrapped = rows.map((row) => ({ row, student: getStudentById(row.studentId) }));
     return sortReportRows(wrapped, order).map((entry) => entry.row);
 };
+let currentDraftFilter = 'all';
+
+const hasPAwarded = (row = {}) => {
+    const marks = Object.values(row.marks || {});
+    return marks.some((m) => getStoredMarkValue(m).toUpperCase() === 'P');
+};
+
+const hasAbsentSubject = (row = {}) => {
+    const marks = Object.values(row.marks || {});
+    if (!marks.length) return false;
+    return marks.some((m) => {
+        const val = getStoredMarkValue(m).toUpperCase();
+        return val === 'A' || val === 'AB';
+    });
+};
+
+const isAllAbsent = (row = {}) => {
+    const marks = Object.values(row.marks || {});
+    if (!marks.length) return false;
+    return marks.every((m) => {
+        const val = getStoredMarkValue(m).toUpperCase();
+        return val === 'A' || val === 'AB';
+    });
+};
+
 const renderPublishedDraftTables = () => {
     const publishedEl = document.getElementById('published-results-table');
     const draftEl = document.getElementById('draft-results-table');
@@ -891,14 +916,43 @@ const renderPublishedDraftTables = () => {
         .filter((row) => !isTeacherScope || teacherAssignedClasses.includes(row.classLabel))
         .filter((row) => !draftClass || row.classLabel === draftClass)
         .filter((row) => resultMatchesExam(row, draftExam));
+
+    // Update smart filter count badges
+    const elAll = document.getElementById('draft-count-all');
+    if (elAll) elAll.textContent = draftRowsRaw.length;
+    const elPassed = document.getElementById('draft-count-passed');
+    if (elPassed) elPassed.textContent = draftRowsRaw.filter(r => isPassFromMarks(r)).length;
+    const elFailed = document.getElementById('draft-count-failed');
+    if (elFailed) elFailed.textContent = draftRowsRaw.filter(r => !isPassFromMarks(r) && !isAllAbsent(r)).length;
+    const elAbsent = document.getElementById('draft-count-absent');
+    if (elAbsent) elAbsent.textContent = draftRowsRaw.filter(r => hasAbsentSubject(r)).length;
+    const elPAwarded = document.getElementById('draft-count-p-awarded');
+    if (elPAwarded) elPAwarded.textContent = draftRowsRaw.filter(r => hasPAwarded(r)).length;
+
+    // Filter by active quick filter
+    let filteredDraftRows = draftRowsRaw;
+    if (currentDraftFilter === 'passed') {
+        filteredDraftRows = draftRowsRaw.filter(r => isPassFromMarks(r));
+    } else if (currentDraftFilter === 'failed') {
+        filteredDraftRows = draftRowsRaw.filter(r => !isPassFromMarks(r) && !isAllAbsent(r));
+    } else if (currentDraftFilter === 'absent') {
+        filteredDraftRows = draftRowsRaw.filter(r => hasAbsentSubject(r));
+    } else if (currentDraftFilter === 'p_awarded') {
+        filteredDraftRows = draftRowsRaw.filter(r => hasPAwarded(r));
+    }
+
     const publishedOrder = document.getElementById('published-order-filter')?.value || 'admission';
     const draftOrder = document.getElementById('draft-order-filter')?.value || 'admission';
     const publishedRows = sortResultRows(publishedRowsRaw, publishedOrder);
-    const draftRows = sortResultRows(draftRowsRaw, draftOrder);
+    const draftRows = sortResultRows(filteredDraftRows, draftOrder);
 
     const adminRowActions = (isPublished, rowId) => `
-        <button class="publish-toggle-btn block w-full text-left px-3 py-2 text-sm hover:bg-indigo-50" data-id="${rowId}" data-next="${isPublished ? 'draft' : 'published'}">${isPublished ? 'Move to Draft' : 'Publish'}</button>
-        <button class="delete-result-btn block w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50" data-id="${rowId}">Delete</button>
+        <button class="publish-toggle-btn block w-full text-left px-3 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50 flex items-center gap-1.5" data-id="${rowId}" data-next="${isPublished ? 'draft' : 'published'}">
+            <i class="fas ${isPublished ? 'fa-arrow-rotate-left text-amber-600' : 'fa-upload text-emerald-600'}"></i> ${isPublished ? 'Move to Draft' : 'Publish'}
+        </button>
+        <button class="delete-result-btn block w-full text-left px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 flex items-center gap-1.5" data-id="${rowId}">
+            <i class="fas fa-trash text-rose-500"></i> Delete
+        </button>
     `;
 
     const rowTemplate = (row, isPublished = false) => `<div class="border rounded-lg p-3 flex items-center justify-between bg-white gap-2 relative" data-result-id="${escapeHtml(row.id)}">
@@ -915,8 +969,141 @@ const renderPublishedDraftTables = () => {
             </div>
         </div>
     </div>`;
+
     publishedEl.innerHTML = publishedRows.length ? publishedRows.map((row) => rowTemplate(row, true)).join('') : '<div class="text-sm text-gray-500">No published results.</div>';
-    draftEl.innerHTML = draftRows.length ? draftRows.map((row) => rowTemplate(row, false)).join('') : '<div class="text-sm text-gray-500">No draft results.</div>';
+
+    // Render Draft Results as a Modern Structured Table
+    if (!draftRows.length) {
+        draftEl.innerHTML = `
+            <div class="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                <i class="fas fa-clipboard-list text-3xl text-slate-300 mb-2"></i>
+                <p class="text-sm font-semibold text-slate-600">No draft results found.</p>
+                <p class="text-xs text-slate-400 mt-1">No records match the current filter or class selection.</p>
+            </div>
+        `;
+    } else {
+        const draftTableBodyHtml = draftRows.map((row, index) => {
+            const student = getStudentById(row.studentId);
+            const studentName = student.name || getStudentNameById(row.studentId);
+            const admNo = student.adm || student.admissionNo || student.uid || '-';
+            const gender = String(student.gender || '').trim().toLowerCase();
+            const genderBadge = (gender.startsWith('f') || gender.includes('girl'))
+                ? '<span class="text-[10px] font-bold text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">Girl</span>'
+                : (gender.startsWith('m') || gender.includes('boy'))
+                    ? '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded">Boy</span>'
+                    : '';
+
+            const schema = resultSchemas.find((item) => item.id === row.schemaId) || getSchemaForClass(row.academicYear || currentAcademicYear, row.classLabel || '');
+            const subjects = getSchemaSubjectRows(schema || {}, row.examKey || parseExamValue(row.examId || '').examKey);
+            const marks = row.marks || {};
+
+            const subjectPills = subjects.map((sub) => {
+                const markVal = getResultMark(marks, sub);
+                const upper = String(markVal || '').trim().toUpperCase();
+                let pillClass = 'bg-slate-100 text-slate-700 border-slate-200';
+                let displayVal = markVal || '-';
+                if (upper === 'P') {
+                    pillClass = 'bg-emerald-100 text-emerald-800 border-emerald-300 font-bold';
+                    displayVal = 'P';
+                } else if (upper === 'A' || upper === 'AB') {
+                    pillClass = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
+                    displayVal = 'A';
+                } else {
+                    const num = Number(markVal);
+                    if (Number.isFinite(num)) {
+                        if (num >= Number(sub.passMarks || 0)) {
+                            pillClass = 'bg-indigo-50 text-indigo-700 border-indigo-200 font-medium';
+                        } else {
+                            pillClass = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+                        }
+                    }
+                }
+                return `<span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border ${pillClass}" title="${escapeHtml(sub.name)}: Pass mark ${sub.passMarks}, Max ${sub.maxMarks}"><span class="text-[10px] text-slate-500 font-normal truncate max-w-[70px]">${escapeHtml(sub.name)}:</span><span class="font-bold">${escapeHtml(String(displayVal))}</span></span>`;
+            }).join(' ');
+
+            const isPassed = isPassFromMarks(row);
+            const hasP = hasPAwarded(row);
+            const isAbs = isAllAbsent(row);
+
+            let statusBadge = '';
+            if (isAbs) {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200"><i class="fas fa-user-xmark mr-1"></i>ABSENT</span>';
+            } else if (isPassed) {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-200"><i class="fas fa-check-circle mr-1"></i>PASS</span>';
+            } else {
+                statusBadge = '<span class="px-2 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-200"><i class="fas fa-times-circle mr-1"></i>FAIL</span>';
+            }
+
+            const pChip = hasP ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200 ml-1" title="Contains P (Passed) subject">P</span>' : '';
+
+            const obt = Number(row.totals?.obtained ?? 0);
+            const max = Number(row.totals?.maximum ?? 0);
+            const pct = max > 0 ? Math.round((obt / max) * 100) : 0;
+
+            return `
+            <tr class="hover:bg-slate-50 transition border-b border-slate-100" data-result-id="${escapeHtml(row.id)}">
+                <td class="p-3 text-center">
+                    <input type="checkbox" class="draft-select-checkbox rounded text-indigo-600" value="${escapeHtml(row.id)}">
+                </td>
+                <td class="p-3 text-center font-mono text-xs text-slate-400 font-semibold">${index + 1}</td>
+                <td class="p-3 font-mono text-xs font-bold text-slate-700">${escapeHtml(admNo)}</td>
+                <td class="p-3">
+                    <div class="font-bold text-slate-800 flex items-center gap-1.5">${escapeHtml(studentName)} ${genderBadge}</div>
+                </td>
+                <td class="p-3">
+                    <div class="text-xs font-semibold text-slate-700">${escapeHtml(row.classLabel || '-')}</div>
+                    <div class="text-[10px] text-slate-500">${escapeHtml(getExamNameById(row.examId, row))}</div>
+                </td>
+                <td class="p-3">
+                    <div class="flex flex-wrap gap-1 max-w-md">${subjectPills || '<span class="text-xs text-slate-400 italic">No marks</span>'}</div>
+                </td>
+                <td class="p-3 text-center">
+                    <div class="font-mono text-xs font-bold text-slate-800">${obt} / ${max}</div>
+                    <div class="text-[10px] font-semibold text-slate-500">${pct}%</div>
+                </td>
+                <td class="p-3 text-center whitespace-nowrap">
+                    ${statusBadge} ${pChip}
+                </td>
+                <td class="p-3 text-center">
+                    <div class="relative inline-block text-left">
+                        <button class="result-row-menu-toggle w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center justify-center transition" data-id="${row.id}" title="Actions">
+                            <i class="fas fa-ellipsis-v"></i>
+                        </button>
+                        <div class="result-row-menu hidden absolute right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[130px] py-1" data-id="${row.id}">
+                            <button class="edit-result-btn block w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1.5" data-id="${row.id}">
+                                <i class="fas fa-edit text-blue-500"></i> Edit Marks
+                            </button>
+                            ${roleScope === 'admin' ? adminRowActions(false, row.id) : ''}
+                        </div>
+                    </div>
+                </td>
+            </tr>
+            `;
+        }).join('');
+
+        draftEl.innerHTML = `
+            <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-xs bg-white">
+                <table class="w-full text-left text-xs whitespace-nowrap">
+                    <thead class="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+                        <tr>
+                            <th class="p-3 w-8 text-center"><input type="checkbox" id="draft-table-select-all" class="rounded text-indigo-600" title="Select All"></th>
+                            <th class="p-3 w-10 text-center">#</th>
+                            <th class="p-3 w-20">Adm No</th>
+                            <th class="p-3 min-w-[140px]">Student Name</th>
+                            <th class="p-3 min-w-[110px]">Class & Exam</th>
+                            <th class="p-3 min-w-[200px]">Subject Breakdown</th>
+                            <th class="p-3 text-center min-w-[90px]">Total</th>
+                            <th class="p-3 text-center min-w-[90px]">Status</th>
+                            <th class="p-3 text-center w-16">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${draftTableBodyHtml}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
 
     const pubClassEl = document.getElementById('published-class-filter');
     if (pubClassEl) {
@@ -1109,6 +1296,104 @@ let entryStudents = [];
 let currentExamSchema = null;
 let currentExamContext = null;
 
+const sortStudentList = (studentList = [], sortMode = 'name_asc', genderMode = 'mixed') => {
+    const list = [...studentList];
+    const getAdm = (s) => String(s.adm || s.admissionNo || s.uid || '').trim();
+    const getName = (s) => String(s.name || '').trim();
+    const getGenderRank = (s, mode) => {
+        const g = String(s.gender || '').trim().toLowerCase();
+        const isBoy = g.startsWith('m') || g.includes('boy');
+        const isGirl = g.startsWith('f') || g.includes('girl');
+        if (mode === 'boys_first') {
+            if (isBoy) return 0;
+            if (isGirl) return 1;
+            return 2;
+        }
+        if (mode === 'girls_first') {
+            if (isGirl) return 0;
+            if (isBoy) return 1;
+            return 2;
+        }
+        return 0;
+    };
+
+    return list.sort((a, b) => {
+        if (genderMode !== 'mixed') {
+            const grDiff = getGenderRank(a, genderMode) - getGenderRank(b, genderMode);
+            if (grDiff !== 0) return grDiff;
+        }
+
+        if (sortMode === 'name_asc') {
+            return getName(a).localeCompare(getName(b), undefined, { numeric: true, sensitivity: 'base' });
+        }
+        if (sortMode === 'name_desc') {
+            return getName(b).localeCompare(getName(a), undefined, { numeric: true, sensitivity: 'base' });
+        }
+        if (sortMode === 'adm_asc') {
+            return getAdm(a).localeCompare(getAdm(b), undefined, { numeric: true, sensitivity: 'base' }) || getName(a).localeCompare(getName(b));
+        }
+        if (sortMode === 'adm_desc') {
+            return getAdm(b).localeCompare(getAdm(a), undefined, { numeric: true, sensitivity: 'base' }) || getName(a).localeCompare(getName(b));
+        }
+        return 0;
+    });
+};
+
+const bindMarksKeyboardNavigation = () => {
+    const tableBody = document.getElementById('marks-table-body');
+    if (!tableBody || tableBody.dataset.navBound === 'true') return;
+    tableBody.dataset.navBound = 'true';
+    tableBody.addEventListener('keydown', (e) => {
+        const input = e.target.closest('.mark-input, .attendance-working, .attendance-present');
+        if (!input) return;
+        const currentTd = input.closest('td');
+        const currentTr = input.closest('tr');
+        if (!currentTd || !currentTr) return;
+
+        const colIndex = Array.from(currentTr.children).indexOf(currentTd);
+        const allRows = Array.from(tableBody.querySelectorAll('tr'));
+        const rowIndex = allRows.indexOf(currentTr);
+
+        if (e.key === 'ArrowDown' || e.key === 'Enter') {
+            e.preventDefault();
+            if (rowIndex < allRows.length - 1) {
+                const targetTd = allRows[rowIndex + 1].children[colIndex];
+                const targetInput = targetTd?.querySelector('.mark-input, .attendance-working, .attendance-present');
+                if (targetInput) {
+                    targetInput.focus();
+                    targetInput.select();
+                }
+            }
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (rowIndex > 0) {
+                const targetTd = allRows[rowIndex - 1].children[colIndex];
+                const targetInput = targetTd?.querySelector('.mark-input, .attendance-working, .attendance-present');
+                if (targetInput) {
+                    targetInput.focus();
+                    targetInput.select();
+                }
+            }
+        } else if (e.key === 'ArrowRight' && (input.selectionStart === input.value.length || input.value === '')) {
+            const inputsInRow = Array.from(currentTr.querySelectorAll('.mark-input, .attendance-working, .attendance-present'));
+            const currentInpIdx = inputsInRow.indexOf(input);
+            if (currentInpIdx >= 0 && currentInpIdx < inputsInRow.length - 1) {
+                e.preventDefault();
+                inputsInRow[currentInpIdx + 1].focus();
+                inputsInRow[currentInpIdx + 1].select();
+            }
+        } else if (e.key === 'ArrowLeft' && (input.selectionStart === 0 || input.value === '')) {
+            const inputsInRow = Array.from(currentTr.querySelectorAll('.mark-input, .attendance-working, .attendance-present'));
+            const currentInpIdx = inputsInRow.indexOf(input);
+            if (currentInpIdx > 0) {
+                e.preventDefault();
+                inputsInRow[currentInpIdx - 1].focus();
+                inputsInRow[currentInpIdx - 1].select();
+            }
+        }
+    });
+};
+
 const loadMarksTable = () => {
     const examId = document.getElementById('entry-exam-select').value;
     const className = document.getElementById('entry-class-select').value;
@@ -1121,7 +1406,26 @@ const loadMarksTable = () => {
 
     currentExamContext = getExamContext(examId, className, currentAcademicYear);
     currentExamSchema = currentExamContext?.schema || null;
-    entryStudents = students.filter(s => s.class === className && (s.academicYear === currentAcademicYear || !s.academicYear)).sort((a,b) => a.name.localeCompare(b.name));
+
+    // Capture any user-entered inputs before re-ordering so work isn't lost
+    const currentInputValues = {};
+    document.querySelectorAll('#marks-table-body tr').forEach((tr) => {
+        const sId = tr.dataset.studentid;
+        if (!sId) return;
+        const sMarks = {};
+        tr.querySelectorAll('.mark-input').forEach((inp) => {
+            const sub = inp.dataset.subject;
+            if (sub) sMarks[sub] = inp.value;
+        });
+        const work = tr.querySelector('.attendance-working')?.value;
+        const pres = tr.querySelector('.attendance-present')?.value;
+        currentInputValues[sId] = { marks: sMarks, working: work, present: pres };
+    });
+
+    const sortMode = document.getElementById('entry-sort-order')?.value || 'name_asc';
+    const genderMode = document.getElementById('entry-gender-order')?.value || 'mixed';
+    const rawFiltered = students.filter(s => s.class === className && (s.academicYear === currentAcademicYear || !s.academicYear));
+    entryStudents = sortStudentList(rawFiltered, sortMode, genderMode);
 
     if(!currentExamSchema || entryStudents.length === 0) {
         cont.classList.add('hidden');
@@ -1130,42 +1434,63 @@ const loadMarksTable = () => {
     }
 
     document.getElementById('entry-table-title').textContent = `Class: ${className}`;
-    document.getElementById('entry-table-subtitle').textContent = `Exam: ${currentExamContext?.label || currentExamSchema.name}`;
+    document.getElementById('entry-table-subtitle').textContent = `Exam: ${currentExamContext?.label || currentExamSchema.name} • ${entryStudents.length} Students`;
 
     // Build Headers
-    let headHtml = `<tr><th class="p-3 text-left w-10">No</th><th class="p-3 text-left min-w-[150px]">Student Name</th>`;
+    let headHtml = `<tr>
+        <th class="p-3 text-center w-12">#</th>
+        <th class="p-3 text-left min-w-[90px]">Adm No</th>
+        <th class="p-3 text-left min-w-[160px]">Student Name</th>`;
     getSchemaSubjectRows(currentExamSchema, currentExamContext?.key || '').forEach(sub => {
-        headHtml += `<th class="p-3 text-center min-w-[90px]">${escapeHtml(sub.name)}<div class="text-[10px] text-slate-400">${sub.maxMarks}/${sub.passMarks}</div></th>`;
+        headHtml += `<th class="p-3 text-center min-w-[90px]">${escapeHtml(sub.name)}<div class="text-[10px] text-slate-400 font-normal">Max: ${sub.maxMarks} | Pass: ${sub.passMarks}</div></th>`;
     });
-    headHtml += `<th class="p-3 text-center min-w-[120px]">Total Attendance</th><th class="p-3 text-center min-w-[120px]">Present Attendance</th></tr>`;
+    headHtml += `<th class="p-3 text-center min-w-[110px]">Total Att.</th><th class="p-3 text-center min-w-[110px]">Present Att.</th></tr>`;
     document.getElementById('marks-table-head').innerHTML = headHtml;
 
     // Build Rows
     let bodyHtml = '';
     entryStudents.forEach((student, index) => {
-        // Find existing marks
         const existingRecord = examResultsCache.find(r => resultMatchesExam(r, examId) && r.studentId === student.id);
-        const marksObj = existingRecord ? (existingRecord.marks || {}) : {};
+        const savedMarksObj = existingRecord ? (existingRecord.marks || {}) : {};
+        const pendingInput = currentInputValues[student.id];
 
-        bodyHtml += `<tr class="border-b hover:bg-white" data-studentid="${student.id}">
-            <td class="p-3 font-mono text-gray-500">${index + 1}</td>
-            <td class="p-3 font-bold text-gray-800">${escapeHtml(student.name)}</td>`;
+        const admNo = student.adm || student.admissionNo || student.uid || '-';
+        const g = String(student.gender || '').trim().toLowerCase();
+        const genderBadge = (g.startsWith('f') || g.includes('girl'))
+            ? '<span class="text-[10px] font-bold text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded ml-1">F</span>'
+            : (g.startsWith('m') || g.includes('boy'))
+                ? '<span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded ml-1">M</span>'
+                : '';
+
+        bodyHtml += `<tr class="border-b hover:bg-slate-50 transition" data-studentid="${student.id}">
+            <td class="p-3 text-center font-mono text-gray-400 text-xs">${index + 1}</td>
+            <td class="p-3 font-mono text-xs font-bold text-slate-600">${escapeHtml(admNo)}</td>
+            <td class="p-3 font-bold text-gray-800 text-sm whitespace-nowrap"><div class="flex items-center">${escapeHtml(student.name)} ${genderBadge}</div></td>`;
         
         getSchemaSubjectRows(currentExamSchema, currentExamContext?.key || '').forEach(sub => {
-            const rawMark = marksObj[sub.id] ?? marksObj[sub.name] ?? '';
-            const val = rawMark && typeof rawMark === 'object' ? (rawMark.value ?? rawMark.mark ?? '') : rawMark;
+            let val = '';
+            if (pendingInput && pendingInput.marks && pendingInput.marks[sub.id] !== undefined) {
+                val = pendingInput.marks[sub.id];
+            } else {
+                const rawMark = savedMarksObj[sub.id] ?? savedMarksObj[sub.name] ?? '';
+                val = rawMark && typeof rawMark === 'object' ? (rawMark.value ?? rawMark.mark ?? '') : rawMark;
+            }
             bodyHtml += `<td class="p-2 text-center">
-                <input type="text" data-subject="${escapeHtml(sub.id)}" data-subject-name="${escapeHtml(sub.name)}" data-max="${sub.maxMarks}" data-pass="${sub.passMarks}" class="mark-input w-full md:w-20 p-2 text-center border rounded focus:border-indigo-500 focus:bg-indigo-50 outline-none" value="${escapeHtml(String(val ?? ''))}" placeholder="-">
+                <input type="text" data-subject="${escapeHtml(sub.id)}" data-subject-name="${escapeHtml(sub.name)}" data-max="${sub.maxMarks}" data-pass="${sub.passMarks}" class="mark-input w-full md:w-20 p-2 text-center font-bold text-sm border rounded focus:border-indigo-500 focus:bg-indigo-50 outline-none transition" value="${escapeHtml(String(val ?? ''))}" placeholder="-">
             </td>`;
         });
         const attendance = existingRecord?.attendance || {};
-        bodyHtml += `<td class="p-2 text-center"><input type="number" min="0" class="attendance-working w-full md:w-24 p-2 text-center border rounded" value="${escapeHtml(String(attendance.workingDays ?? ''))}" placeholder="0"></td>`;
-        bodyHtml += `<td class="p-2 text-center"><input type="number" min="0" class="attendance-present w-full md:w-24 p-2 text-center border rounded" value="${escapeHtml(String(attendance.presentDays ?? ''))}" placeholder="0"></td>`;
+        const workVal = (pendingInput && pendingInput.working !== undefined) ? pendingInput.working : (attendance.workingDays ?? '');
+        const presVal = (pendingInput && pendingInput.present !== undefined) ? pendingInput.present : (attendance.presentDays ?? '');
+
+        bodyHtml += `<td class="p-2 text-center"><input type="number" min="0" class="attendance-working w-full md:w-24 p-2 text-center border rounded text-xs" value="${escapeHtml(String(workVal ?? ''))}" placeholder="0"></td>`;
+        bodyHtml += `<td class="p-2 text-center"><input type="number" min="0" class="attendance-present w-full md:w-24 p-2 text-center border rounded text-xs" value="${escapeHtml(String(presVal ?? ''))}" placeholder="0"></td>`;
         bodyHtml += `</tr>`;
     });
     document.getElementById('marks-table-body').innerHTML = bodyHtml;
     cont.classList.remove('hidden');
     bindMarksValidationEvents();
+    bindMarksKeyboardNavigation();
 };
 const sanitizeBulkDocId = (value = '') => String(value || '').replace(/[^\w-]/g, '_');
 const getBulkTemplateRows = () => {
@@ -1892,13 +2217,38 @@ const genderRank = (student = {}) => {
     if (gender.startsWith('f') || gender.includes('girl')) return 1;
     return 2;
 };
+const genderRankReverse = (student = {}) => {
+    const gender = String(student.gender || '').trim().toLowerCase();
+    if (gender.startsWith('f') || gender.includes('girl')) return 0;
+    if (gender.startsWith('m') || gender.includes('boy')) return 1;
+    return 2;
+};
 const sortReportRows = (rows = [], order = 'rank') => {
-    const alpha = (a, b) => String(a.student.name || '').localeCompare(String(b.student.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const alphaAsc = (a, b) => String(a.student.name || '').localeCompare(String(b.student.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const alphaDesc = (a, b) => String(b.student.name || '').localeCompare(String(a.student.name || ''), undefined, { numeric: true, sensitivity: 'base' });
+    const admAsc = (a, b) => compareAdmissionNo(a, b) || alphaAsc(a, b);
+    const admDesc = (a, b) => compareAdmissionNo(b, a) || alphaAsc(a, b);
     return [...rows].sort((a, b) => {
-        if (order === 'admission') return compareAdmissionNo(a, b) || alpha(a, b);
-        if (order === 'gender') return genderRank(a.student) - genderRank(b.student) || alpha(a, b);
-        if (order === 'alpha') return alpha(a, b);
-        return (a.rank || 9999) - (b.rank || 9999) || alpha(a, b);
+        if (order === 'gender') {
+            const diff = genderRank(a.student) - genderRank(b.student);
+            if (diff !== 0) return diff;
+            return admAsc(a, b);
+        }
+        if (order === 'gender_girls') {
+            const diff = genderRankReverse(a.student) - genderRankReverse(b.student);
+            if (diff !== 0) return diff;
+            return admAsc(a, b);
+        }
+        if (order === 'admission') return admAsc(a, b);
+        if (order === 'admission_desc') return admDesc(a, b);
+        if (order === 'alpha') return alphaAsc(a, b);
+        if (order === 'alpha_desc') return alphaDesc(a, b);
+        if (order === 'rank') {
+            const obtA = Number(a.row?.totals?.obtained ?? a.totals?.obtained ?? 0);
+            const obtB = Number(b.row?.totals?.obtained ?? b.totals?.obtained ?? 0);
+            return (obtB - obtA) || admAsc(a, b);
+        }
+        return admAsc(a, b);
     });
 };
 const getAttendanceLabel = (row = {}) => {
@@ -2252,6 +2602,68 @@ const bindSelectToggle = (btnId, checkboxClass) => {
 };
 bindSelectToggle('published-select-toggle-btn', 'published-select-checkbox');
 bindSelectToggle('draft-select-toggle-btn', 'draft-select-checkbox');
+
+// Draft smart filter buttons & select-all in table header
+document.querySelectorAll('.draft-quick-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        currentDraftFilter = btn.dataset.filter || 'all';
+        document.querySelectorAll('.draft-quick-filter-btn').forEach((b) => {
+            b.classList.remove('active', 'bg-indigo-600', 'text-white', 'shadow-sm');
+            if (b.dataset.filter === 'passed') {
+                b.className = 'draft-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition';
+            } else if (b.dataset.filter === 'failed') {
+                b.className = 'draft-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition';
+            } else if (b.dataset.filter === 'absent') {
+                b.className = 'draft-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 transition';
+            } else if (b.dataset.filter === 'p_awarded') {
+                b.className = 'draft-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 transition';
+            } else {
+                b.className = 'draft-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            }
+        });
+        btn.className = 'draft-quick-filter-btn active text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 text-white shadow-sm transition';
+        renderPublishedDraftTables();
+    });
+});
+
+document.addEventListener('change', (e) => {
+    if (e.target.id === 'draft-table-select-all') {
+        const isChecked = e.target.checked;
+        document.querySelectorAll('.draft-select-checkbox').forEach((cb) => {
+            cb.checked = isChecked;
+        });
+        const toggleBtn = document.getElementById('draft-select-toggle-btn');
+        if (toggleBtn) toggleBtn.textContent = isChecked ? 'Deselect All' : 'Select All';
+    }
+});
+
+// Marks Entry Sort, Grouping, Absent & Clear buttons
+document.getElementById('entry-sort-order')?.addEventListener('change', () => loadMarksTable());
+document.getElementById('entry-gender-order')?.addEventListener('change', () => loadMarksTable());
+
+document.getElementById('mark-fill-absent-btn')?.addEventListener('click', () => {
+    let count = 0;
+    document.querySelectorAll('#marks-table-body .mark-input').forEach((input) => {
+        if (!input.value.trim()) {
+            input.value = 'A';
+            count++;
+        }
+    });
+    validateMarksTable();
+    if (count > 0) {
+        alert(`Filled ${count} empty mark(s) with 'A' (Absent).`);
+    } else {
+        alert("No empty mark inputs found.");
+    }
+});
+
+document.getElementById('mark-clear-btn')?.addEventListener('click', () => {
+    if (!confirm('Are you sure you want to clear all entered marks in this table?')) return;
+    document.querySelectorAll('#marks-table-body .mark-input').forEach((input) => {
+        input.value = '';
+    });
+    validateMarksTable();
+});
 
 document.getElementById('grade-scale-select')?.addEventListener('change', () => {
     resultCenterSettings.gradeRules = [];
