@@ -485,7 +485,7 @@ const applyRoleTabVisibility = () => {
 
         const activeTab = document.querySelector('.tab-link.active');
         const activeTarget = activeTab?.dataset?.target || '';
-        const blockedTargets = new Set(['settings-page', 'published-page', 'report-cards-page']);
+        const blockedTargets = new Set(['settings-page', 'published-page', 'report-cards-page', 'snapshot-page']);
         if (blockedTargets.has(activeTarget)) {
             const dashboardLink = document.querySelector('.tab-link[data-target="dashboard-page"]');
             dashboardLink?.click();
@@ -519,6 +519,11 @@ const activateResultTab = (tabEl, { updateHash = true } = {}) => {
     const targetPage = document.getElementById(tabEl.dataset.target);
     if(targetPage) targetPage.classList.remove('hidden');
 
+    // Trigger panel refresh when snapshot-page is activated
+    if (tabEl.dataset.target === 'snapshot-page') {
+        renderSnapshotPanelUI();
+    }
+
     // Toggle full-width layout body class specifically for Marks Entry tab
     if (tabEl.dataset.target === 'marks-page') {
         document.body.classList.add('marks-entry-active');
@@ -545,6 +550,14 @@ tabs.forEach(tab => {
 });
 window.addEventListener('hashchange', () => {
     const hash = window.location.hash;
+    if (hash === '#snapshot' || hash === '#snapshot-export' || hash === '#settings-snapshot') {
+        const snapTab = document.querySelector('.tab-link[data-target="snapshot-page"]');
+        if (snapTab) {
+            activateResultTab(snapTab, { updateHash: false });
+            if (hash !== '#snapshot') history.replaceState({}, '', '#snapshot');
+            return;
+        }
+    }
     const tab = Array.from(tabs).find((entry) => entry.getAttribute('href') === hash);
     if (tab) {
         activateResultTab(tab, { updateHash: false });
@@ -566,19 +579,27 @@ window.addEventListener('hashchange', () => {
 
 if (window.location.hash) {
     const hash = window.location.hash;
-    const initialTab = Array.from(tabs).find((entry) => entry.getAttribute('href') === hash);
-    if (initialTab) {
-        activateResultTab(initialTab, { updateHash: false });
+    if (hash === '#snapshot' || hash === '#snapshot-export' || hash === '#settings-snapshot') {
+        const snapTab = document.querySelector('.tab-link[data-target="snapshot-page"]');
+        if (snapTab) {
+            activateResultTab(snapTab, { updateHash: false });
+            if (hash !== '#snapshot') history.replaceState({}, '', '#snapshot');
+        }
     } else {
-        const settingsLink = document.querySelector(`.settings-nav-link[href="${hash}"]`);
-        if (settingsLink) {
-            const settingsPage = document.getElementById('settings-page');
-            if (settingsPage) {
-                tabs.forEach(t => t.classList.remove('active'));
-                pages.forEach(p => p.classList.add('hidden'));
-                settingsPage.classList.remove('hidden');
-                if (typeof activateSettingsSubpanel === 'function') {
-                    activateSettingsSubpanel(settingsLink.dataset.subtab);
+        const initialTab = Array.from(tabs).find((entry) => entry.getAttribute('href') === hash);
+        if (initialTab) {
+            activateResultTab(initialTab, { updateHash: false });
+        } else {
+            const settingsLink = document.querySelector(`.settings-nav-link[href="${hash}"]`);
+            if (settingsLink) {
+                const settingsPage = document.getElementById('settings-page');
+                if (settingsPage) {
+                    tabs.forEach(t => t.classList.remove('active'));
+                    pages.forEach(p => p.classList.add('hidden'));
+                    settingsPage.classList.remove('hidden');
+                    if (typeof activateSettingsSubpanel === 'function') {
+                        activateSettingsSubpanel(settingsLink.dataset.subtab);
+                    }
                 }
             }
         }
@@ -4567,6 +4588,14 @@ document.getElementById('grade-scale-total-input')?.addEventListener('change', (
 
 // Settings & Setup Sub-Panel Activator (hamburger menu & subtab buttons)
 const activateSettingsSubpanel = (subtabId) => {
+    if (subtabId === 'subpanel-snapshot') {
+        const snapTab = document.querySelector('.tab-link[data-target="snapshot-page"]');
+        if (snapTab) {
+            activateResultTab(snapTab);
+            return;
+        }
+    }
+
     if (!subtabId) subtabId = 'subpanel-publish';
     
     // Hide all subpanels and show target
@@ -4581,8 +4610,7 @@ const activateSettingsSubpanel = (subtabId) => {
         'subpanel-publish': 'Publish Controls',
         'subpanel-subjects': 'Subjects & Exams',
         'subpanel-grades': 'Grade Rules',
-        'subpanel-promotion': 'Class Promotion',
-        'subpanel-snapshot': 'Snapshot Export'
+        'subpanel-promotion': 'Class Promotion'
     };
     const badge = document.getElementById('current-settings-subtab-badge');
     if (badge) badge.textContent = subtabNames[subtabId] || 'Publish Controls';
@@ -4620,10 +4648,6 @@ const activateSettingsSubpanel = (subtabId) => {
         renderPublishControls();
         renderBlockedClasses();
         renderPublishedHistoryTable();
-    }
-    // If snapshot subpanel is selected, refresh snapshot scope and stats
-    if (subtabId === 'subpanel-snapshot') {
-        renderSnapshotPanelUI();
     }
 };
 
