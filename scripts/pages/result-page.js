@@ -21,6 +21,7 @@ let currentAcademicYear = '';
 let availableAcademicYears = [];
 let allStaff = [];
 let currentDraftFilter = 'all';
+let currentPublishedFilter = 'all';
 let viewingResultId = '';
 window.addEventListener('load', () => {
     const loader = document.getElementById('loading-screen');
@@ -423,15 +424,21 @@ const denyResultAccess = () => {
     document.getElementById('page-content').classList.add('hidden');
 };
 const applyRoleTabVisibility = () => {
-    const adminOnlyItems = Array.from(document.querySelectorAll('[data-role-scope="admin-only"]'));
-    adminOnlyItems.forEach((item) => item.classList.toggle('hidden', roleScope !== 'admin'));
-    if (roleScope === 'admin') return;
-    const activeTab = document.querySelector('.tab-link.active');
-    const activeTarget = activeTab?.dataset?.target || '';
-    const blockedTargets = new Set(['settings-page', 'published-page']);
-    if (blockedTargets.has(activeTarget)) {
-        const dashboardLink = document.querySelector('.tab-link[data-target="dashboard-page"]');
-        dashboardLink?.click();
+    // Only toggle nav items and controls, NOT .page-content sections which are controlled by tab router
+    const adminOnlyNavItems = Array.from(document.querySelectorAll('[data-role-scope="admin-only"]:not(.page-content)'));
+    adminOnlyNavItems.forEach((item) => item.classList.toggle('hidden', roleScope !== 'admin'));
+
+    if (roleScope !== 'admin') {
+        const adminSections = document.querySelectorAll('.page-content[data-role-scope="admin-only"]');
+        adminSections.forEach((sec) => sec.classList.add('hidden'));
+
+        const activeTab = document.querySelector('.tab-link.active');
+        const activeTarget = activeTab?.dataset?.target || '';
+        const blockedTargets = new Set(['settings-page', 'published-page']);
+        if (blockedTargets.has(activeTarget)) {
+            const dashboardLink = document.querySelector('.tab-link[data-target="dashboard-page"]');
+            dashboardLink?.click();
+        }
     }
 };
 
@@ -486,13 +493,45 @@ tabs.forEach(tab => {
     });
 });
 window.addEventListener('hashchange', () => {
-    const tab = Array.from(tabs).find((entry) => entry.getAttribute('href') === window.location.hash);
-    if (tab) activateResultTab(tab, { updateHash: false });
+    const hash = window.location.hash;
+    const tab = Array.from(tabs).find((entry) => entry.getAttribute('href') === hash);
+    if (tab) {
+        activateResultTab(tab, { updateHash: false });
+        return;
+    }
+    const settingsLink = document.querySelector(`.settings-nav-link[href="${hash}"]`);
+    if (settingsLink) {
+        const settingsPage = document.getElementById('settings-page');
+        if (settingsPage) {
+            tabs.forEach(t => t.classList.remove('active'));
+            pages.forEach(p => p.classList.add('hidden'));
+            settingsPage.classList.remove('hidden');
+            if (typeof activateSettingsSubpanel === 'function') {
+                activateSettingsSubpanel(settingsLink.dataset.subtab);
+            }
+        }
+    }
 });
 
 if (window.location.hash) {
-    const initialTab = Array.from(tabs).find((entry) => entry.getAttribute('href') === window.location.hash);
-    if (initialTab) activateResultTab(initialTab, { updateHash: false });
+    const hash = window.location.hash;
+    const initialTab = Array.from(tabs).find((entry) => entry.getAttribute('href') === hash);
+    if (initialTab) {
+        activateResultTab(initialTab, { updateHash: false });
+    } else {
+        const settingsLink = document.querySelector(`.settings-nav-link[href="${hash}"]`);
+        if (settingsLink) {
+            const settingsPage = document.getElementById('settings-page');
+            if (settingsPage) {
+                tabs.forEach(t => t.classList.remove('active'));
+                pages.forEach(p => p.classList.add('hidden'));
+                settingsPage.classList.remove('hidden');
+                if (typeof activateSettingsSubpanel === 'function') {
+                    activateSettingsSubpanel(settingsLink.dataset.subtab);
+                }
+            }
+        }
+    }
 }
 
 
@@ -917,7 +956,7 @@ const renderPublishedDraftTables = () => {
         .filter((row) => !draftClass || row.classLabel === draftClass)
         .filter((row) => resultMatchesExam(row, draftExam));
 
-    // Update smart filter count badges
+    // Update smart filter count badges for Draft
     const elAll = document.getElementById('draft-count-all');
     if (elAll) elAll.textContent = draftRowsRaw.length;
     const elPassed = document.getElementById('draft-count-passed');
@@ -929,7 +968,19 @@ const renderPublishedDraftTables = () => {
     const elPAwarded = document.getElementById('draft-count-p-awarded');
     if (elPAwarded) elPAwarded.textContent = draftRowsRaw.filter(r => hasPAwarded(r)).length;
 
-    // Filter by active quick filter
+    // Update smart filter count badges for Published
+    const elPubAll = document.getElementById('published-count-all');
+    if (elPubAll) elPubAll.textContent = publishedRowsRaw.length;
+    const elPubPassed = document.getElementById('published-count-passed');
+    if (elPubPassed) elPubPassed.textContent = publishedRowsRaw.filter(r => isPassFromMarks(r)).length;
+    const elPubFailed = document.getElementById('published-count-failed');
+    if (elPubFailed) elPubFailed.textContent = publishedRowsRaw.filter(r => !isPassFromMarks(r) && !isAllAbsent(r)).length;
+    const elPubAbsent = document.getElementById('published-count-absent');
+    if (elPubAbsent) elPubAbsent.textContent = publishedRowsRaw.filter(r => hasAbsentSubject(r)).length;
+    const elPubPAwarded = document.getElementById('published-count-p-awarded');
+    if (elPubPAwarded) elPubPAwarded.textContent = publishedRowsRaw.filter(r => hasPAwarded(r)).length;
+
+    // Filter by active quick filter for Draft
     let filteredDraftRows = draftRowsRaw;
     if (currentDraftFilter === 'passed') {
         filteredDraftRows = draftRowsRaw.filter(r => isPassFromMarks(r));
@@ -941,9 +992,21 @@ const renderPublishedDraftTables = () => {
         filteredDraftRows = draftRowsRaw.filter(r => hasPAwarded(r));
     }
 
+    // Filter by active quick filter for Published
+    let filteredPublishedRows = publishedRowsRaw;
+    if (currentPublishedFilter === 'passed') {
+        filteredPublishedRows = publishedRowsRaw.filter(r => isPassFromMarks(r));
+    } else if (currentPublishedFilter === 'failed') {
+        filteredPublishedRows = publishedRowsRaw.filter(r => !isPassFromMarks(r) && !isAllAbsent(r));
+    } else if (currentPublishedFilter === 'absent') {
+        filteredPublishedRows = publishedRowsRaw.filter(r => hasAbsentSubject(r));
+    } else if (currentPublishedFilter === 'p_awarded') {
+        filteredPublishedRows = publishedRowsRaw.filter(r => hasPAwarded(r));
+    }
+
     const publishedOrder = document.getElementById('published-order-filter')?.value || 'admission';
     const draftOrder = document.getElementById('draft-order-filter')?.value || 'admission';
-    const publishedRows = sortResultRows(publishedRowsRaw, publishedOrder);
+    const publishedRows = sortResultRows(filteredPublishedRows, publishedOrder);
     const draftRows = sortResultRows(filteredDraftRows, draftOrder);
 
     const adminRowActions = (isPublished, rowId) => `
@@ -955,37 +1018,21 @@ const renderPublishedDraftTables = () => {
         </button>
     `;
 
-    const rowTemplate = (row, isPublished = false) => `<div class="border rounded-lg p-3 flex items-center justify-between bg-white gap-2 relative" data-result-id="${escapeHtml(row.id)}">
-        <input type="checkbox" class="${isPublished ? 'published' : 'draft'}-select-checkbox" value="${row.id}">
-        <div class="min-w-0 flex-1">
-            <div class="font-bold text-sm truncate">${escapeHtml(getStudentNameById(row.studentId))}</div>
-            <div class="text-xs text-gray-500">${escapeHtml(getExamNameById(row.examId, row))} • ${escapeHtml(row.classLabel || '-')} • ${escapeHtml(getStudentById(row.studentId).admissionNo || getStudentById(row.studentId).adm || '-')} • ${isPublished ? 'Published' : 'Draft'}</div>
-        </div>
-        <div class="relative">
-            <button class="result-row-menu-toggle w-9 h-9 rounded-full hover:bg-gray-100 text-gray-600" data-id="${row.id}" title="Actions"><i class="fas fa-ellipsis-v"></i></button>
-            <div class="result-row-menu hidden absolute right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-[140px]" data-id="${row.id}">
-                <button class="edit-result-btn block w-full text-left px-3 py-2 text-sm hover:bg-blue-50" data-id="${row.id}">Edit</button>
-                ${roleScope === 'admin' ? adminRowActions(isPublished, row.id) : ''}
-            </div>
-        </div>
-    </div>`;
+    const renderTableForResults = (rows, isPublished) => {
+        if (!rows.length) {
+            return `
+                <div class="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                    <i class="fas ${isPublished ? 'fa-clipboard-check' : 'fa-clipboard-list'} text-3xl text-slate-300 mb-2"></i>
+                    <p class="text-sm font-semibold text-slate-600">No ${isPublished ? 'published' : 'draft'} results found.</p>
+                    <p class="text-xs text-slate-400 mt-1">No records match the current filter or class selection.</p>
+                </div>
+            `;
+        }
 
-    publishedEl.innerHTML = publishedRows.length ? publishedRows.map((row) => rowTemplate(row, true)).join('') : '<div class="text-sm text-gray-500">No published results.</div>';
-
-    // Render Draft Results as a Modern Structured Table
-    if (!draftRows.length) {
-        draftEl.innerHTML = `
-            <div class="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl">
-                <i class="fas fa-clipboard-list text-3xl text-slate-300 mb-2"></i>
-                <p class="text-sm font-semibold text-slate-600">No draft results found.</p>
-                <p class="text-xs text-slate-400 mt-1">No records match the current filter or class selection.</p>
-            </div>
-        `;
-    } else {
-        const draftTableBodyHtml = draftRows.map((row, index) => {
-            const student = getStudentById(row.studentId);
-            const studentName = student.name || getStudentNameById(row.studentId);
-            const admNo = student.adm || student.admissionNo || student.uid || '-';
+        const tableBodyHtml = rows.map((row, index) => {
+            const student = getStudentById(row.studentId) || {};
+            const studentName = student.name || getStudentNameById(row.studentId) || row.studentName || 'Unknown Student';
+            const admNo = student.admissionNo || student.adm || student.uid || row.admissionNo || '-';
             const gender = String(student.gender || '').trim().toLowerCase();
             const genderBadge = (gender.startsWith('f') || gender.includes('girl'))
                 ? '<span class="text-[10px] font-bold text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded">Girl</span>'
@@ -1040,10 +1087,12 @@ const renderPublishedDraftTables = () => {
             const max = Number(row.totals?.maximum ?? 0);
             const pct = max > 0 ? Math.round((obt / max) * 100) : 0;
 
+            const checkboxClass = isPublished ? 'published-select-checkbox' : 'draft-select-checkbox';
+
             return `
             <tr class="hover:bg-slate-50 transition border-b border-slate-100" data-result-id="${escapeHtml(row.id)}">
                 <td class="p-3 text-center">
-                    <input type="checkbox" class="draft-select-checkbox rounded text-indigo-600" value="${escapeHtml(row.id)}">
+                    <input type="checkbox" class="${checkboxClass} rounded text-indigo-600" value="${escapeHtml(row.id)}">
                 </td>
                 <td class="p-3 text-center font-mono text-xs text-slate-400 font-semibold">${index + 1}</td>
                 <td class="p-3 font-mono text-xs font-bold text-slate-700">${escapeHtml(admNo)}</td>
@@ -1073,7 +1122,7 @@ const renderPublishedDraftTables = () => {
                             <button class="edit-result-btn block w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1.5" data-id="${row.id}">
                                 <i class="fas fa-edit text-blue-500"></i> Edit Marks
                             </button>
-                            ${roleScope === 'admin' ? adminRowActions(false, row.id) : ''}
+                            ${roleScope === 'admin' ? adminRowActions(isPublished, row.id) : ''}
                         </div>
                     </div>
                 </td>
@@ -1081,12 +1130,14 @@ const renderPublishedDraftTables = () => {
             `;
         }).join('');
 
-        draftEl.innerHTML = `
+        const selectAllId = isPublished ? 'published-table-select-all' : 'draft-table-select-all';
+
+        return `
             <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-xs bg-white">
                 <table class="w-full text-left text-xs whitespace-nowrap">
                     <thead class="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
                         <tr>
-                            <th class="p-3 w-8 text-center"><input type="checkbox" id="draft-table-select-all" class="rounded text-indigo-600" title="Select All"></th>
+                            <th class="p-3 w-8 text-center"><input type="checkbox" id="${selectAllId}" class="rounded text-indigo-600" title="Select All"></th>
                             <th class="p-3 w-10 text-center">#</th>
                             <th class="p-3 w-20">Adm No</th>
                             <th class="p-3 min-w-[140px]">Student Name</th>
@@ -1098,12 +1149,15 @@ const renderPublishedDraftTables = () => {
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
-                        ${draftTableBodyHtml}
+                        ${tableBodyHtml}
                     </tbody>
                 </table>
             </div>
         `;
-    }
+    };
+
+    publishedEl.innerHTML = renderTableForResults(publishedRows, true);
+    draftEl.innerHTML = renderTableForResults(draftRows, false);
 
     const pubClassEl = document.getElementById('published-class-filter');
     if (pubClassEl) {
@@ -2518,6 +2572,16 @@ document.getElementById('published-exam-filter')?.addEventListener('change', ren
 document.getElementById('draft-exam-filter')?.addEventListener('change', renderPublishedDraftTables);
 document.getElementById('published-order-filter')?.addEventListener('change', renderPublishedDraftTables);
 document.getElementById('draft-order-filter')?.addEventListener('change', renderPublishedDraftTables);
+document.getElementById('published-bulk-unpublish-btn')?.addEventListener('click', async () => {
+    if (roleScope !== 'admin') return;
+    const ids = Array.from(document.querySelectorAll('.published-select-checkbox:checked')).map((el) => el.value);
+    if (!ids.length) return alert('Select at least one published result.');
+    if (!confirm(`Move ${ids.length} published result(s) back to draft?`)) return;
+    await withBusyButton('published-bulk-unpublish-btn', 'Moving to Draft...', async () => {
+        await Promise.all(ids.map((id) => updateDoc(doc(db, `${BASE_PATH}/examResults`, id), { published: false, publishedAt: null, updatedAt: Date.now() })));
+        notify(`Moved ${ids.length} result(s) back to draft.`);
+    });
+});
 document.getElementById('published-bulk-delete-btn')?.addEventListener('click', async () => {
     if (roleScope !== 'admin') return;
     const ids = Array.from(document.querySelectorAll('.published-select-checkbox:checked')).map((el) => el.value);
@@ -2603,6 +2667,29 @@ const bindSelectToggle = (btnId, checkboxClass) => {
 bindSelectToggle('published-select-toggle-btn', 'published-select-checkbox');
 bindSelectToggle('draft-select-toggle-btn', 'draft-select-checkbox');
 
+// Published smart filter buttons
+document.querySelectorAll('.published-quick-filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        currentPublishedFilter = btn.dataset.filter || 'all';
+        document.querySelectorAll('.published-quick-filter-btn').forEach((b) => {
+            b.classList.remove('active', 'bg-indigo-600', 'text-white', 'shadow-sm');
+            if (b.dataset.filter === 'passed') {
+                b.className = 'published-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition';
+            } else if (b.dataset.filter === 'failed') {
+                b.className = 'published-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition';
+            } else if (b.dataset.filter === 'absent') {
+                b.className = 'published-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 transition';
+            } else if (b.dataset.filter === 'p_awarded') {
+                b.className = 'published-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-50 text-purple-700 hover:bg-purple-100 transition';
+            } else {
+                b.className = 'published-quick-filter-btn text-xs font-bold px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition';
+            }
+        });
+        btn.className = 'published-quick-filter-btn active text-xs font-bold px-3 py-1.5 rounded-lg bg-indigo-600 text-white shadow-sm transition';
+        renderPublishedDraftTables();
+    });
+});
+
 // Draft smart filter buttons & select-all in table header
 document.querySelectorAll('.draft-quick-filter-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -2633,6 +2720,13 @@ document.addEventListener('change', (e) => {
             cb.checked = isChecked;
         });
         const toggleBtn = document.getElementById('draft-select-toggle-btn');
+        if (toggleBtn) toggleBtn.textContent = isChecked ? 'Deselect All' : 'Select All';
+    } else if (e.target.id === 'published-table-select-all') {
+        const isChecked = e.target.checked;
+        document.querySelectorAll('.published-select-checkbox').forEach((cb) => {
+            cb.checked = isChecked;
+        });
+        const toggleBtn = document.getElementById('published-select-toggle-btn');
         if (toggleBtn) toggleBtn.textContent = isChecked ? 'Deselect All' : 'Select All';
     }
 });
@@ -2670,22 +2764,87 @@ document.getElementById('grade-scale-select')?.addEventListener('change', () => 
     renderGradeRules();
 });
 
-// Settings & Setup Sub-tab switcher
+// Settings & Setup Sub-Panel Activator (hamburger menu & subtab buttons)
+const activateSettingsSubpanel = (subtabId) => {
+    if (!subtabId) subtabId = 'subpanel-publish';
+    
+    // Hide all subpanels and show target
+    document.querySelectorAll('.settings-subpanel').forEach((panel) => {
+        panel.classList.add('hidden');
+    });
+    const activePanel = document.getElementById(subtabId);
+    if (activePanel) activePanel.classList.remove('hidden');
+
+    // Update section name badge
+    const subtabNames = {
+        'subpanel-publish': 'Publish Controls',
+        'subpanel-subjects': 'Subjects & Exams',
+        'subpanel-grades': 'Grade Rules',
+        'subpanel-promotion': 'Class Promotion',
+        'subpanel-snapshot': 'Snapshot Export',
+        'subpanel-visibility': 'Student Visibility'
+    };
+    const badge = document.getElementById('current-settings-subtab-badge');
+    if (badge) badge.textContent = subtabNames[subtabId] || 'Publish Controls';
+
+    // Highlight active link in hamburger menu
+    document.querySelectorAll('.settings-nav-link').forEach((link) => {
+        const isCurrent = (link.dataset.subtab === subtabId);
+        link.classList.toggle('active', isCurrent);
+        if (isCurrent) {
+            link.style.background = '#eef2ff';
+            link.style.color = '#3730a3';
+            link.style.fontWeight = '700';
+        } else {
+            link.style.background = '';
+            link.style.color = '';
+            link.style.fontWeight = '';
+        }
+    });
+
+    // Also sync any subtab buttons if present
+    document.querySelectorAll('.settings-subtab-btn').forEach((b) => {
+        const isCurrent = (b.dataset.subtab === subtabId);
+        b.classList.toggle('active', isCurrent);
+        b.classList.toggle('bg-indigo-600', isCurrent);
+        b.classList.toggle('text-white', isCurrent);
+        b.classList.toggle('shadow-sm', isCurrent);
+        b.classList.toggle('text-slate-700', !isCurrent);
+    });
+};
+
+// Hamburger menu links for Settings & Setup subtabs
+document.querySelectorAll('.settings-nav-link').forEach((link) => {
+    link.addEventListener('click', (e) => {
+        e.preventDefault();
+        
+        // Switch main page to settings-page
+        const settingsPage = document.getElementById('settings-page');
+        if (settingsPage) {
+            tabs.forEach(t => t.classList.remove('active'));
+            pages.forEach(p => p.classList.add('hidden'));
+            settingsPage.classList.remove('hidden');
+            document.body.classList.remove('marks-entry-active');
+            
+            const subtabId = link.dataset.subtab || 'subpanel-publish';
+            activateSettingsSubpanel(subtabId);
+            
+            if (link.getAttribute('href')?.startsWith('#')) {
+                history.pushState({}, '', link.getAttribute('href'));
+            }
+        }
+        
+        // Close menu
+        navMenu.classList.remove('active');
+        mobileMenuBtn?.classList.remove('active-toggle');
+    });
+});
+
+// Settings & Setup Sub-tab button switcher (if used anywhere)
 document.querySelectorAll('.settings-subtab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
         const targetSubtab = btn.dataset.subtab;
-        document.querySelectorAll('.settings-subtab-btn').forEach((b) => {
-            b.classList.remove('active', 'bg-indigo-600', 'text-white', 'shadow-sm');
-            b.classList.add('text-slate-700');
-        });
-        btn.classList.add('active', 'bg-indigo-600', 'text-white', 'shadow-sm');
-        btn.classList.remove('text-slate-700');
-
-        document.querySelectorAll('.settings-subpanel').forEach((panel) => {
-            panel.classList.add('hidden');
-        });
-        const activePanel = document.getElementById(targetSubtab);
-        if (activePanel) activePanel.classList.remove('hidden');
+        activateSettingsSubpanel(targetSubtab);
     });
 });
 

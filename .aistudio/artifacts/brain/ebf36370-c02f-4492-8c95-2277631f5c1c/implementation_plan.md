@@ -138,10 +138,19 @@ The updated Result Portal delivers a secure, responsive, and role-aware examinat
 ## Verification & Testing Steps
 
 1. **Role Access Verification**:
-   - Log in as Super Admin: Ensure all 5 tabs and all classes are visible and accessible. Verify all sub-tools in Settings (Publish, Subjects, Grades, Promotion, Snapshot) function correctly.
+   - Log in as Super Admin: Ensure all 5 tabs and all classes are visible and accessible. Verify all sub-tools in Settings (Publish, Subjects, Grades, Promotion, Snapshot, Visibility) function correctly via the hamburger menu.
    - Log in as Staff/Teacher: Verify that Settings and Published Results tabs are hidden. Verify that Marks Entry and Draft Review class selectors only display their assigned class(es).
-2. **Responsive Layout Verification**:
-   - Desktop view (1440px): Check wide data grid, sticky headers, and tabular number alignment.
-   - Mobile view (375px - 414px): Check header toggle, slide-down menu, scrollable marks grid, and touch buttons.
-3. **Data Integrity & Build**:
+2. **Published Results Table & Smart Filters Verification**:
+   - Verify Published Results displays in a structured, high-density table matching Draft Review.
+   - Verify Quick Smart Filters for Published Results (All, Passed, Failed, Absent, P Awarded) dynamically update counters and filter rows.
+   - Verify Sort Orders (Admission No, A-Z, Z-A, Rank/Score, Boys First, Girls First, Mixed) correctly sort published rows.
+   - Verify Bulk "Move to Draft" moves results back to draft status in Firestore.
+3. **Settings & Setup Navigation Reorganization**:
+   - Verify Settings & Setup subtabs are removed from under the header.
+   - Verify hamburger menu clearly groups Settings & Setup with all 6 subtabs: Publish Controls, Subjects & Exams, Grade Rules, Class Promotion, Snapshot Export, and Student Visibility.
+   - Verify clicking any subtab directly activates `settings-page` and reveals the corresponding subpanel.
+4. **Overview Page Settings Leak Bug Fix**:
+   - Verify that upon initial login / applet load, Settings & Setup contents are strictly hidden while on Overview (`#dashboard-page`).
+   - Switching between tabs maintains clean page-content isolation with zero unintended element leakage.
+5. **Data Integrity & Build**:
    - Run `lint_applet` and `compile_applet` to verify clean build with zero syntax or import errors.

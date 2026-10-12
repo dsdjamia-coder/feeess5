@@ -546,6 +546,25 @@ header { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); pos
 .tab-link.active i {
     color: #ffffff !important;
 }
+.settings-nav-link {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    border-radius: 10px !important;
+}
+.settings-nav-link:hover {
+    background: #eef2ff !important;
+    color: #4338ca !important;
+}
+.settings-nav-link.active {
+    background: #e0e7ff !important;
+    color: #3730a3 !important;
+    border-color: #c7d2fe !important;
+    font-weight: 700 !important;
+    box-shadow: none !important;
+}
+.settings-nav-link.active i {
+    color: #4f46e5 !important;
+}
 .login-btn-nav, .install-btn-nav { width: 100%; text-align: center; justify-content: center; padding: 10px; margin-top: 5px; }
 
 /* Student notification dropdown mirrors the compact hamburger menu pattern */
