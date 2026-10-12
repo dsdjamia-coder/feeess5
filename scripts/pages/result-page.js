@@ -872,7 +872,7 @@ const sortResultRows = (rows = [], order = 'admission') => {
     const wrapped = rows.map((row) => ({ row, student: getStudentById(row.studentId) }));
     return sortReportRows(wrapped, order).map((entry) => entry.row);
 };
-let currentDraftFilter = 'all';
+
 
 const hasPAwarded = (row = {}) => {
     const marks = Object.values(row.marks || {});
