@@ -1047,17 +1047,28 @@ const renderPublishedHistoryTable = () => {
         const isLive = !isScheduled || (targetTs && targetTs <= now);
         const blockedList = Array.isArray(record.blockedClasses) ? record.blockedClasses : [];
 
-        const modeBadge = isScheduled
+        const isUnpublished = record.publishType === 'unpublished' || record.status === 'Unpublished';
+        const modeBadge = isUnpublished
+            ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><i class="fas fa-undo text-[10px]"></i> Reverted to Draft</span>`
+            : isScheduled
             ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200"><i class="fas fa-clock text-[10px]"></i> Auto Publish (${formatDateTimeLabel(record.publishAt)})</span>`
             : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><i class="fas fa-bolt text-[10px]"></i> Publish Now</span>`;
 
-        const statusBadge = isLive
+        const statusBadge = isUnpublished
+            ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600 border border-slate-200"><span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span> Draft</span>`
+            : isLive
             ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Live</span>`
             : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200"><span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Countdown</span>`;
 
         const blockedHtml = blockedList.length
             ? `<div class="flex flex-wrap gap-1 max-w-xs">${blockedList.map((cls) => `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">${escapeHtml(cls)}</span>`).join('')}</div>`
             : `<span class="text-[11px] text-emerald-600 font-semibold flex items-center gap-1"><i class="fas fa-check-circle text-[10px]"></i> All Open (None Blocked)</span>`;
+
+        const unpublishBtnHtml = !isUnpublished
+            ? `<button type="button" class="unpublish-record-btn px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}" title="Unpublish results back to draft">
+                    <i class="fas fa-undo"></i> Unpublish
+               </button>`
+            : '';
 
         return `
             <tr class="hover:bg-slate-50/80 transition" data-id="${escapeHtml(record.id)}">
@@ -1075,10 +1086,11 @@ const renderPublishedHistoryTable = () => {
                 <td class="py-3 px-4">${blockedHtml}</td>
                 <td class="py-3 px-4 text-center whitespace-nowrap">
                     <div class="inline-flex items-center gap-1">
+                        ${unpublishBtnHtml}
                         <button type="button" class="edit-publish-record-btn px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}">
                             <i class="fas fa-edit"></i> Edit
                         </button>
-                        <button type="button" class="delete-publish-record-btn px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}">
+                        <button type="button" class="delete-publish-record-btn px-2.5 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs transition flex items-center gap-1" data-id="${escapeHtml(record.id)}" title="Delete record and revert results to draft">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
@@ -1953,6 +1965,27 @@ const bindMarksKeyboardNavigation = () => {
     });
 };
 
+const updateMarkEntryActionButtonsUI = () => {
+    const publishBtn = document.getElementById('save-publish-btn');
+    if (!publishBtn) return;
+    const isCoreExam = isDefaultExamKey(currentExamContext?.key);
+    const isAdmin = (roleScope === 'admin');
+
+    if (isAdmin) {
+        publishBtn.innerHTML = '<i class="fas fa-upload"></i> Publish';
+        publishBtn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3.5 rounded-lg shadow-sm transition flex items-center gap-1.5 text-xs sm:text-sm';
+        publishBtn.title = 'Publish results immediately';
+    } else if (isCoreExam) {
+        publishBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit to Admin';
+        publishBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 px-3.5 rounded-lg shadow-sm transition flex items-center gap-1.5 text-xs sm:text-sm';
+        publishBtn.title = 'Submit marks to Admin for review & publishing';
+    } else {
+        publishBtn.innerHTML = '<i class="fas fa-upload"></i> Publish';
+        publishBtn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3.5 rounded-lg shadow-sm transition flex items-center gap-1.5 text-xs sm:text-sm';
+        publishBtn.title = 'Publish custom exam results for your class';
+    }
+};
+
 const loadMarksTable = () => {
     const examId = document.getElementById('entry-exam-select').value;
     const className = document.getElementById('entry-class-select').value;
@@ -1965,6 +1998,8 @@ const loadMarksTable = () => {
 
     currentExamContext = getExamContext(examId, className, currentAcademicYear);
     currentExamSchema = currentExamContext?.schema || null;
+
+    updateMarkEntryActionButtonsUI();
 
     // Capture any user-entered inputs before re-ordering so work isn't lost
     const currentInputValues = {};
@@ -2266,9 +2301,12 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
     if (roleScope === 'staff' && teacherAssignedClasses.length > 0 && !teacherAssignedClasses.includes(selectedClass)) {
         return alert('You can only enter marks for your assigned classes.');
     }
-    if (shouldPublish && roleScope !== 'admin') {
-        return alert('Only administrators have permission to publish results. Please use "Save as Draft".');
-    }
+
+    const isCoreExam = isDefaultExamKey(currentExamContext?.key);
+    const isAdmin = (roleScope === 'admin');
+    const isTeacherCustomPublish = (!isAdmin && !isCoreExam && shouldPublish);
+    const isTeacherCoreSubmit = (!isAdmin && isCoreExam && shouldPublish);
+    const effectivePublish = shouldPublish && (isAdmin || isTeacherCustomPublish);
     
     const rows = document.querySelectorAll('#marks-table-body tr');
     const subjectRows = getSchemaSubjectRows(currentExamSchema, currentExamContext?.key || '');
@@ -2296,7 +2334,7 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
             const workingDays = Number(row.querySelector('.attendance-working')?.value || 0);
             const presentDays = Number(row.querySelector('.attendance-present')?.value || 0);
             const summary = buildResultSummary(marks, subjectRows);
-            batch.set(ref, {
+            const recordPayload = {
                 examId: currentExamContext.value,
                 schemaId: currentExamSchema.id,
                 examKey: currentExamContext.key,
@@ -2309,11 +2347,16 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
                 grades: summary.grades,
                 totals: summary.totals,
                 showMarksToStudents: true,
-                published: shouldPublish === true,
-                publishedAt: shouldPublish === true ? Date.now() : null,
+                published: effectivePublish === true,
+                publishedAt: effectivePublish === true ? Date.now() : null,
                 academicYear: currentAcademicYear,
                 updatedAt: Date.now()
-            }, {merge: true});
+            };
+            if (isTeacherCoreSubmit) {
+                recordPayload.submittedToAdmin = true;
+                recordPayload.submittedAt = Date.now();
+            }
+            batch.set(ref, recordPayload, {merge: true});
             operationCount++;
         }
     });
@@ -2329,10 +2372,19 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
 
     try {
         await batch.commit();
-        activeBtn.innerHTML = shouldPublish ? `<i class="fas fa-check"></i> Published!` : `<i class="fas fa-check"></i> Draft Saved!`;
+        if (isTeacherCoreSubmit) {
+            activeBtn.innerHTML = `<i class="fas fa-check"></i> Submitted to Admin!`;
+            notify(`Marks submitted to Admin for ${currentExamContext?.label || 'Core Exam'}. Admin will announce and publish via Publish Control.`);
+        } else if (effectivePublish) {
+            activeBtn.innerHTML = `<i class="fas fa-check"></i> Published!`;
+            notify(`Results published successfully for ${selectedClass}!`);
+        } else {
+            activeBtn.innerHTML = `<i class="fas fa-check"></i> Draft Saved!`;
+            notify('Draft marks saved successfully.');
+        }
         setTimeout(() => {
             draftBtn.innerHTML = `<i class="fas fa-file"></i> Save as Draft`;
-            publishBtn.innerHTML = `<i class="fas fa-upload"></i> Publish`;
+            updateMarkEntryActionButtonsUI();
             draftBtn.disabled = false;
             publishBtn.disabled = false;
         }, 2000);
@@ -2340,9 +2392,11 @@ const saveMarksFromEntry = async (shouldPublish = false) => {
         console.error(e);
         alert("Failed to save marks. Check internet connection.");
         draftBtn.innerHTML = `<i class="fas fa-file"></i> Save as Draft`;
-        publishBtn.innerHTML = `<i class="fas fa-upload"></i> Publish`;
+        updateMarkEntryActionButtonsUI();
         draftBtn.disabled = false;
         publishBtn.disabled = false;
+    }
+};
     }
 };
 document.getElementById('save-draft-btn')?.addEventListener('click', async () => saveMarksFromEntry(false));
@@ -2416,23 +2470,131 @@ const cancelEditingPublishRecord = () => {
     updatePublishLiveStatus();
 };
 
+const unpublishExamResults = async (recordId) => {
+    if (roleScope !== 'admin') return alert('Only admin can unpublish results.');
+    const record = getPublishHistoryRecords().find((r) => r.id === recordId);
+    if (!record) return alert('Publish record not found.');
+
+    const prompt = `Are you sure you want to unpublish results for "${record.examLabel || record.examKey}" (${record.academicYear})?\n\nThis will move all published marks back to Draft and hide them from students and report cards.`;
+    if (!confirm(prompt)) return;
+
+    await withBusyButton(null, 'Unpublishing...', async () => {
+        const rowsToUnpublish = examResultsCache.filter((row) => {
+            if (row.published !== true) return false;
+            const matchesYear = !row.academicYear || row.academicYear === record.academicYear;
+            const matchesExam = resultMatchesExam(row, record.examKey);
+            return matchesYear && matchesExam;
+        });
+
+        if (rowsToUnpublish.length > 0) {
+            for (let i = 0; i < rowsToUnpublish.length; i += 400) {
+                const chunk = rowsToUnpublish.slice(i, i + 400);
+                const batch = writeBatch(db);
+                chunk.forEach((row) => {
+                    batch.update(doc(db, `${BASE_PATH}/examResults`, row.id), {
+                        published: false,
+                        publishedAt: null,
+                        updatedAt: Date.now()
+                    });
+                });
+                await batch.commit();
+            }
+        }
+
+        let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
+        const recordIdx = history.findIndex((r) => r.id === recordId);
+        if (recordIdx >= 0) {
+            history[recordIdx] = {
+                ...history[recordIdx],
+                publishType: 'unpublished',
+                status: 'Unpublished',
+                unpublishedAt: Date.now(),
+                updatedAt: Date.now()
+            };
+        }
+
+        const isCurrentActiveAnnouncement = (resultCenterSettings.publishExamKey === record.examKey && (!resultCenterSettings.publishAcademicYear || resultCenterSettings.publishAcademicYear === record.academicYear));
+        const settingsUpdate = {
+            publishHistory: history,
+            updatedAt: Date.now()
+        };
+        if (isCurrentActiveAnnouncement) {
+            settingsUpdate.publishAt = '';
+            settingsUpdate.examLabel = '';
+            settingsUpdate.countdownStartedAt = '';
+            resultCenterSettings.publishAt = '';
+            resultCenterSettings.examLabel = '';
+        }
+
+        await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), settingsUpdate, { merge: true });
+
+        resultCenterSettings.publishHistory = history;
+        if (editingPublishRecordId === recordId) {
+            cancelEditingPublishRecord();
+        }
+
+        renderPublishedHistoryTable();
+        renderPublishedDraftTables();
+        updateDashboard();
+        notify(`Unpublished ${rowsToUnpublish.length} result(s) successfully! They are now in Draft.`);
+    });
+};
+
 const deletePublishRecord = async (recordId) => {
     if (roleScope !== 'admin') return alert('Only admin can delete published records.');
-    if (!confirm('Are you sure you want to remove this published record from history?')) return;
+    const record = getPublishHistoryRecords().find((r) => r.id === recordId);
+    if (!record) return;
+
+    if (!confirm(`Remove "${record.examLabel || record.examKey}" from publish history?\n\nThis will also unpublish its results and revert them back to Draft.`)) return;
+
+    const rowsToUnpublish = examResultsCache.filter((row) => {
+        if (row.published !== true) return false;
+        const matchesYear = !row.academicYear || row.academicYear === record.academicYear;
+        const matchesExam = resultMatchesExam(row, record.examKey);
+        return matchesYear && matchesExam;
+    });
+
+    if (rowsToUnpublish.length > 0) {
+        for (let i = 0; i < rowsToUnpublish.length; i += 400) {
+            const chunk = rowsToUnpublish.slice(i, i + 400);
+            const batch = writeBatch(db);
+            chunk.forEach((row) => {
+                batch.update(doc(db, `${BASE_PATH}/examResults`, row.id), {
+                    published: false,
+                    publishedAt: null,
+                    updatedAt: Date.now()
+                });
+            });
+            await batch.commit();
+        }
+    }
+
     let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
     history = history.filter((r) => r.id !== recordId);
 
-    await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), {
+    const isCurrentActiveAnnouncement = (resultCenterSettings.publishExamKey === record.examKey && (!resultCenterSettings.publishAcademicYear || resultCenterSettings.publishAcademicYear === record.academicYear));
+    const settingsUpdate = {
         publishHistory: history,
         updatedAt: Date.now()
-    }, { merge: true });
+    };
+    if (isCurrentActiveAnnouncement) {
+        settingsUpdate.publishAt = '';
+        settingsUpdate.examLabel = '';
+        settingsUpdate.countdownStartedAt = '';
+        resultCenterSettings.publishAt = '';
+        resultCenterSettings.examLabel = '';
+    }
+
+    await setDoc(doc(db, `${BASE_PATH}/settings`, 'resultCenter'), settingsUpdate, { merge: true });
 
     resultCenterSettings.publishHistory = history;
     if (editingPublishRecordId === recordId) {
         cancelEditingPublishRecord();
     }
     renderPublishedHistoryTable();
-    notify('Published record removed from history.');
+    renderPublishedDraftTables();
+    updateDashboard();
+    notify('Published record removed and results returned to Draft.');
 };
 
 const runPublishAction = async () => {
@@ -2467,8 +2629,11 @@ const runPublishAction = async () => {
 
     await withBusyButton('run-publish-action-btn', isNow ? 'Publishing...' : 'Saving Schedule...', async () => {
         let history = Array.isArray(resultCenterSettings.publishHistory) ? [...resultCenterSettings.publishHistory] : [];
-        const recordId = editingPublishRecordId || `pub_${Date.now()}`;
-        const existingIdx = history.findIndex((r) => r.id === recordId);
+        let existingIdx = editingPublishRecordId
+            ? history.findIndex((r) => r.id === editingPublishRecordId)
+            : history.findIndex((r) => r.academicYear === publishAcademicYear && r.examKey === publishExamKey);
+
+        const recordId = (existingIdx >= 0 && history[existingIdx].id) ? history[existingIdx].id : (editingPublishRecordId || `pub_${Date.now()}`);
 
         const newRecord = {
             id: recordId,
@@ -2488,6 +2653,9 @@ const runPublishAction = async () => {
             history.unshift(newRecord);
         }
 
+        // Deduplicate any duplicate history items of this same academic year and exam
+        history = history.filter((r, idx) => idx === existingIdx || !(r.id !== recordId && r.academicYear === publishAcademicYear && r.examKey === publishExamKey));
+
         if (isNow) {
             const draftsToPublish = examResultsCache.filter((row) => {
                 if (row.published === true) return false;
@@ -2497,13 +2665,18 @@ const runPublishAction = async () => {
                 return matchesYear && matchesExam && !isBlocked;
             });
             if (draftsToPublish.length > 0) {
-                await Promise.all(draftsToPublish.map((row) =>
-                    updateDoc(doc(db, `${BASE_PATH}/examResults`, row.id), {
-                        published: true,
-                        publishedAt: Date.now(),
-                        updatedAt: Date.now()
-                    })
-                ));
+                for (let i = 0; i < draftsToPublish.length; i += 400) {
+                    const chunk = draftsToPublish.slice(i, i + 400);
+                    const batch = writeBatch(db);
+                    chunk.forEach((row) => {
+                        batch.update(doc(db, `${BASE_PATH}/examResults`, row.id), {
+                            published: true,
+                            publishedAt: Date.now(),
+                            updatedAt: Date.now()
+                        });
+                    });
+                    await batch.commit();
+                }
             }
         }
 
@@ -2528,6 +2701,8 @@ const runPublishAction = async () => {
 
         cancelEditingPublishRecord();
         renderPublishedHistoryTable();
+        renderPublishedDraftTables();
+        updateDashboard();
         alert(isNow ? 'Results Published Successfully!' : 'Auto publish schedule saved successfully!');
     });
 };
